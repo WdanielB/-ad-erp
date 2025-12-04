@@ -2,6 +2,7 @@
 
 import { MaintenanceTaskList } from '@/components/workshop/MaintenanceTaskList'
 import { VisualBatchCreator } from '@/components/workshop/VisualBatchCreator'
+import { WorkshopOrderList } from '@/components/workshop/WorkshopOrderList'
 
 export default function WorkshopPage() {
     return (
@@ -16,7 +17,12 @@ export default function WorkshopPage() {
                 <VisualBatchCreator onBatchCreated={() => window.location.reload()} />
             </div>
 
-            <MaintenanceTaskList />
+            <WorkshopOrderList />
+
+            <div className="mt-8">
+                <h2 className="text-xl font-semibold mb-4">Mantenimiento de Inventario</h2>
+                <MaintenanceTaskList />
+            </div>
         </div>
     )
 }

@@ -100,6 +100,13 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
                 delete submitData.labor_cost
             }
 
+            // Sanitize empty strings to null
+            if (submitData.category_id === '') delete submitData.category_id
+            if (submitData.image_url === '') delete submitData.image_url
+            if (submitData.sku === '') delete submitData.sku
+            if (submitData.flower_color_name === '') delete submitData.flower_color_name
+            if (submitData.flower_color_hex === '') delete submitData.flower_color_hex
+
             let error;
 
             if (productToEdit) {
