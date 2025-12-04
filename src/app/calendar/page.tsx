@@ -5,6 +5,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSam
 import { es } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, MapPin, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -27,9 +28,67 @@ export default function CalendarPage() {
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
     const [loading, setLoading] = useState(true)
 
+    const [events, setEvents] = useState<any[]>([])
+    const [isEventDialogOpen, setIsEventDialogOpen] = useState(false)
+    const [newEvent, setNewEvent] = useState({ title: '', description: '', type: 'campaign', date: '' })
+
     useEffect(() => {
         fetchOrders()
+        fetchEvents()
     }, [currentDate])
+
+    async function fetchEvents() {
+        const start = startOfMonth(currentDate).toISOString()
+        const end = endOfMonth(currentDate).toISOString()
+
+        const { data } = await supabase
+            .from('calendar_events')
+            .select('*')
+            .gte('event_date', start)
+            .lte('event_date', end)
+
+        if (data) setEvents(data)
+    }
+
+    async function handleCreateEvent() {
+        if (!newEvent.title || !newEvent.date) return
+
+        const { error } = await (supabase
+            .from('calendar_events') as any)
+            .insert({
+                title: newEvent.title,
+                description: newEvent.description,
+                type: newEvent.type,
+                event_date: new Date(newEvent.date).toISOString()
+            })
+
+        if (error) {
+            console.error('Error creating event:', error)
+            alert('Error al crear evento')
+        } else {
+            setIsEventDialogOpen(false)
+            setNewEvent({ title: '', description: '', type: 'campaign', date: '' })
+            fetchEvents()
+        }
+    }
+
+    const getEventsForDay = (date: Date) => {
+        return events.filter(event => isSameDay(parseISO(event.event_date), date))
+    }
+
+    const getTimeRemaining = (dateString: string) => {
+        const now = new Date()
+        const target = new Date(dateString)
+        const diff = target.getTime() - now.getTime()
+
+        if (diff < 0) return 'Vencido'
+
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+        if (days > 0) return `${days}d ${hours}h`
+        return `${hours}h`
+    }
 
     async function fetchOrders() {
         setLoading(true)

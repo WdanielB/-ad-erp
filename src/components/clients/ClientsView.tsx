@@ -46,7 +46,7 @@ export function ClientsView() {
             .order('full_name', { ascending: true })
 
         if (searchTerm) {
-            query = query.ilike('full_name', `%${searchTerm}%`)
+            query = query.or(`full_name.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`)
         }
 
         const { data, error } = await query
