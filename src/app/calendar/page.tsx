@@ -377,11 +377,17 @@ function UpcomingList({ orders, events, onOrderClick }: { orders: any[], events:
         )
     }
 
+    const isUrgent = (dateString: string) => {
+        const hoursLeft = differenceInHours(new Date(dateString), now)
+        return hoursLeft < 24 && hoursLeft >= 0
+    }
+
     return (
         <div className="space-y-3">
             {upcomingItems.map((item, idx) => {
                 const urgency = getUrgencyColor(item.delivery_date || item.event_date)
                 const isOrder = item.itemType === 'order'
+                const showFlipClock = isUrgent(item.delivery_date || item.event_date)
 
                 return (
                     <Card
@@ -419,10 +425,16 @@ function UpcomingList({ orders, events, onOrderClick }: { orders: any[], events:
                                     )}
                                 </div>
                                 <div className="text-right">
-                                    <div className={`text-2xl font-bold ${urgency.text}`}>
-                                        {getCountdown(item.delivery_date || item.event_date)}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">restante</div>
+                                    {showFlipClock ? (
+                                        <FlipCountdown targetDate={item.delivery_date || item.event_date} />
+                                    ) : (
+                                        <>
+                                            <div className={`text-2xl font-bold ${urgency.text}`}>
+                                                {getCountdown(item.delivery_date || item.event_date)}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">restante</div>
+                                        </>
+                                    )}
                                     {isOrder && (
                                         <div className="text-sm font-medium mt-1">
                                             S/ {item.total_amount?.toFixed(2)}
@@ -434,6 +446,75 @@ function UpcomingList({ orders, events, onOrderClick }: { orders: any[], events:
                     </Card>
                 )
             })}
+        </div>
+    )
+}
+
+// Flip Clock Countdown Component
+function FlipCountdown({ targetDate }: { targetDate: string }) {
+    const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+
+    useEffect(() => {
+        const calculateTime = () => {
+            const now = new Date()
+            const target = new Date(targetDate)
+            const diff = target.getTime() - now.getTime()
+
+            if (diff <= 0) {
+                setTimeLeft({ hours: 0, minutes: 0, seconds: 0 })
+                return
+            }
+
+            const hours = Math.floor(diff / (1000 * 60 * 60))
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+            setTimeLeft({ hours, minutes, seconds })
+        }
+
+        calculateTime()
+        const interval = setInterval(calculateTime, 1000)
+        return () => clearInterval(interval)
+    }, [targetDate])
+
+    const FlipCard = ({ value, label }: { value: number, label: string }) => (
+        <div className="flex flex-col items-center">
+            <div className="relative">
+                <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-lg shadow-lg overflow-hidden">
+                    <div className="relative w-14 h-16 flex items-center justify-center">
+                        {/* Top half with gradient */}
+                        <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-gray-700 to-gray-800 rounded-t-lg" />
+                        {/* Middle line */}
+                        <div className="absolute inset-x-0 top-1/2 h-[2px] bg-black/30 z-10" />
+                        {/* Number */}
+                        <span className="relative z-20 text-3xl font-bold text-white font-mono tracking-wider">
+                            {value.toString().padStart(2, '0')}
+                        </span>
+                        {/* Shine effect */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent rounded-lg" />
+                    </div>
+                </div>
+                {/* Shadow underneath */}
+                <div className="absolute -bottom-1 inset-x-1 h-2 bg-black/20 rounded-b-lg blur-sm" />
+            </div>
+            <span className="text-[10px] text-gray-600 mt-1.5 font-medium uppercase tracking-wider">{label}</span>
+        </div>
+    )
+
+    const Separator = () => (
+        <div className="flex flex-col justify-center items-center h-16 px-0.5">
+            <div className="w-1.5 h-1.5 bg-gray-700 rounded-full mb-2" />
+            <div className="w-1.5 h-1.5 bg-gray-700 rounded-full" />
+        </div>
+    )
+
+    return (
+        <div className="flex items-start gap-1 bg-gray-100 p-2 rounded-xl shadow-inner">
+            <FlipCard value={timeLeft.hours} label="Horas" />
+            <Separator />
+            <FlipCard value={timeLeft.minutes} label="Min" />
+            <Separator />
+            <FlipCard value={timeLeft.seconds} label="Seg" />
         </div>
     )
 }
