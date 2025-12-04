@@ -157,16 +157,28 @@ export default function CalendarPage() {
                             className={`min-h-[120px] cursor-pointer hover:bg-muted/50 transition-colors ${!isSameMonth(day, currentDate) ? 'opacity-50' : ''}`}
                             onClick={() => setSelectedDate(day)}
                         >
-                            <CardHeader className="p-2">
+                            <CardHeader className="p-2 flex flex-row justify-between items-start space-y-0">
                                 <div className={`text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full ${isSameDay(day, new Date()) ? 'bg-primary text-primary-foreground' : ''}`}>
                                     {format(day, 'd')}
                                 </div>
+                                {getEventsForDay(day).length > 0 && (
+                                    <div className="flex gap-1">
+                                        {getEventsForDay(day).map(ev => (
+                                            <div key={ev.id} className="w-2 h-2 rounded-full bg-purple-500" title={ev.title} />
+                                        ))}
+                                    </div>
+                                )}
                             </CardHeader>
                             <CardContent className="p-2 space-y-1">
+                                {getEventsForDay(day).map(event => (
+                                    <div key={event.id} className="text-xs p-1 rounded bg-purple-100 text-purple-800 font-medium truncate mb-1">
+                                        ★ {event.title}
+                                    </div>
+                                ))}
                                 {dayOrders.map(order => (
                                     <div
                                         key={order.id}
-                                        className="text-xs p-1 rounded truncate cursor-pointer"
+                                        className="text-xs p-1 rounded truncate cursor-pointer group relative"
                                         style={{
                                             backgroundColor: order.label_color ? `${order.label_color}20` : '#dbeafe',
                                             borderLeft: `3px solid ${order.label_color || '#3b82f6'}`,
@@ -177,7 +189,12 @@ export default function CalendarPage() {
                                             setSelectedOrder(order)
                                         }}
                                     >
-                                        {format(parseISO(order.delivery_date), 'HH:mm')} - {order.clients?.full_name || 'Cliente'}
+                                        <div className="flex justify-between items-center">
+                                            <span>{format(parseISO(order.delivery_date), 'HH:mm')} - {order.clients?.full_name?.split(' ')[0] || 'Cliente'}</span>
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                                            ⏳ {getTimeRemaining(order.delivery_date)}
+                                        </div>
                                     </div>
                                 ))}
                             </CardContent>
@@ -185,6 +202,45 @@ export default function CalendarPage() {
                     )
                 })}
             </div>
+
+            <Dialog open={isEventDialogOpen} onOpenChange={setIsEventDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Nuevo Evento</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Título</label>
+                            <Input
+                                value={newEvent.title}
+                                onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
+                                placeholder="Ej: Día de la Madre"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Fecha</label>
+                            <Input
+                                type="date"
+                                value={newEvent.date}
+                                onChange={e => setNewEvent({ ...newEvent, date: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Tipo</label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={newEvent.type}
+                                onChange={e => setNewEvent({ ...newEvent, type: e.target.value })}
+                            >
+                                <option value="campaign">Campaña</option>
+                                <option value="milestone">Hito</option>
+                                <option value="other">Otro</option>
+                            </select>
+                        </div>
+                        <Button onClick={handleCreateEvent} className="w-full">Crear Evento</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
                 <DialogContent>
