@@ -124,16 +124,22 @@ export default function CalendarPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold tracking-tight">Calendario de Pedidos</h1>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" onClick={prevMonth}>
-                        <ChevronLeft className="h-4 w-4" />
+                <div className="flex items-center gap-4">
+                    <Button onClick={() => setIsEventDialogOpen(true)}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        Nuevo Evento
                     </Button>
-                    <div className="font-semibold min-w-[150px] text-center capitalize">
-                        {format(currentDate, 'MMMM yyyy', { locale: es })}
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="icon" onClick={prevMonth}>
+                            <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <div className="font-semibold min-w-[150px] text-center capitalize">
+                            {format(currentDate, 'MMMM yyyy', { locale: es })}
+                        </div>
+                        <Button variant="outline" size="icon" onClick={nextMonth}>
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
                     </div>
-                    <Button variant="outline" size="icon" onClick={nextMonth}>
-                        <ChevronRight className="h-4 w-4" />
-                    </Button>
                 </div>
             </div>
 
