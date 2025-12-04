@@ -450,9 +450,11 @@ function UpcomingList({ orders, events, onOrderClick }: { orders: any[], events:
     )
 }
 
-// Flip Clock Countdown Component
+// Retro Dark Flip Clock - Binder Style Countdown Component
 function FlipCountdown({ targetDate }: { targetDate: string }) {
     const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+    const [prevTime, setPrevTime] = useState({ hours: 0, minutes: 0, seconds: 0 })
+    const [flipping, setFlipping] = useState({ hours: false, minutes: false, seconds: false })
 
     useEffect(() => {
         const calculateTime = () => {
@@ -469,52 +471,139 @@ function FlipCountdown({ targetDate }: { targetDate: string }) {
             const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
             const seconds = Math.floor((diff % (1000 * 60)) / 1000)
 
+            // Detect changes for flip animation
+            setFlipping({
+                hours: hours !== timeLeft.hours,
+                minutes: minutes !== timeLeft.minutes,
+                seconds: seconds !== timeLeft.seconds
+            })
+
+            setPrevTime(timeLeft)
             setTimeLeft({ hours, minutes, seconds })
+
+            // Reset flip state after animation
+            setTimeout(() => {
+                setFlipping({ hours: false, minutes: false, seconds: false })
+            }, 500)
         }
 
         calculateTime()
         const interval = setInterval(calculateTime, 1000)
         return () => clearInterval(interval)
-    }, [targetDate])
+    }, [targetDate, timeLeft.hours, timeLeft.minutes, timeLeft.seconds])
 
-    const FlipCard = ({ value, label }: { value: number, label: string }) => (
-        <div className="flex flex-col items-center">
-            <div className="relative">
-                <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-lg shadow-lg overflow-hidden">
-                    <div className="relative w-14 h-16 flex items-center justify-center">
-                        {/* Top half with gradient */}
-                        <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-gray-700 to-gray-800 rounded-t-lg" />
-                        {/* Middle line */}
-                        <div className="absolute inset-x-0 top-1/2 h-[2px] bg-black/30 z-10" />
-                        {/* Number */}
-                        <span className="relative z-20 text-3xl font-bold text-white font-mono tracking-wider">
-                            {value.toString().padStart(2, '0')}
-                        </span>
-                        {/* Shine effect */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent rounded-lg" />
-                    </div>
-                </div>
-                {/* Shadow underneath */}
-                <div className="absolute -bottom-1 inset-x-1 h-2 bg-black/20 rounded-b-lg blur-sm" />
-            </div>
-            <span className="text-[10px] text-gray-600 mt-1.5 font-medium uppercase tracking-wider">{label}</span>
+    // Binder hole component
+    const BinderHole = ({ position }: { position: 'top' | 'bottom' }) => (
+        <>
+            <div className={`absolute ${position === 'top' ? 'bottom-[3px]' : 'top-[3px]'} left-2 w-1.5 h-1.5 bg-[#1a1a1a] rounded-full shadow-inner z-30`} />
+            <div className={`absolute ${position === 'top' ? 'bottom-[3px]' : 'top-[3px]'} right-2 w-1.5 h-1.5 bg-[#1a1a1a] rounded-full shadow-inner z-30`} />
+        </>
+    )
+
+    // Metallic binder ring
+    const BinderRing = ({ side }: { side: 'left' | 'right' }) => (
+        <div className={`absolute top-1/2 ${side === 'left' ? 'left-1.5' : 'right-1.5'} w-1.5 h-5 -translate-y-1/2 z-40`}>
+            <div className="w-full h-full bg-gradient-to-r from-[#555] via-[#ccc] to-[#555] rounded-full shadow-md" />
         </div>
     )
 
+    // Single flip digit with split card design
+    const FlipDigit = ({ value, prevValue, isFlipping, label }: {
+        value: number,
+        prevValue: number,
+        isFlipping: boolean,
+        label: string
+    }) => {
+        const displayValue = value.toString().padStart(2, '0')
+        const displayPrevValue = prevValue.toString().padStart(2, '0')
+
+        return (
+            <div className="flex flex-col items-center">
+                <div className="relative w-12 h-16 perspective-1000">
+                    {/* Static bottom half (current value) */}
+                    <div className="absolute inset-x-0 bottom-0 h-1/2 overflow-hidden rounded-b-md">
+                        <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a1a] to-[#252525] noise-texture">
+                            <BinderHole position="bottom" />
+                        </div>
+                        <div className="absolute inset-0 flex items-start justify-center">
+                            <span className="text-white text-2xl font-bold tracking-wider" style={{ fontFamily: 'Oswald, sans-serif', transform: 'translateY(-50%)' }}>
+                                {displayValue}
+                            </span>
+                        </div>
+                        {isFlipping && <div className="absolute inset-0 animate-highlight rounded-b-md" />}
+                    </div>
+
+                    {/* Static top half (current value) */}
+                    <div className="absolute inset-x-0 top-0 h-1/2 overflow-hidden rounded-t-md">
+                        <div className="absolute inset-0 bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] noise-texture">
+                            <BinderHole position="top" />
+                        </div>
+                        <div className="absolute inset-0 flex items-end justify-center">
+                            <span className="text-white text-2xl font-bold tracking-wider" style={{ fontFamily: 'Oswald, sans-serif', transform: 'translateY(50%)' }}>
+                                {displayValue}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Flipping top card (old value flipping down) */}
+                    {isFlipping && (
+                        <div className="absolute inset-x-0 top-0 h-1/2 overflow-hidden rounded-t-md preserve-3d animate-flip-top z-20">
+                            <div className="absolute inset-0 bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] backface-hidden noise-texture">
+                                <BinderHole position="top" />
+                            </div>
+                            <div className="absolute inset-0 flex items-end justify-center backface-hidden">
+                                <span className="text-white text-2xl font-bold tracking-wider" style={{ fontFamily: 'Oswald, sans-serif', transform: 'translateY(50%)' }}>
+                                    {displayPrevValue}
+                                </span>
+                            </div>
+                            <div className="absolute inset-0 animate-shading rounded-t-md" />
+                        </div>
+                    )}
+
+                    {/* Flipping bottom card (new value appearing) */}
+                    {isFlipping && (
+                        <div className="absolute inset-x-0 bottom-0 h-1/2 overflow-hidden rounded-b-md preserve-3d animate-flip-bottom z-20" style={{ transform: 'rotateX(180deg)' }}>
+                            <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a1a] to-[#252525] backface-hidden noise-texture" style={{ transform: 'rotateX(180deg)' }}>
+                                <BinderHole position="bottom" />
+                            </div>
+                            <div className="absolute inset-0 flex items-start justify-center backface-hidden" style={{ transform: 'rotateX(180deg)' }}>
+                                <span className="text-white text-2xl font-bold tracking-wider" style={{ fontFamily: 'Oswald, sans-serif', transform: 'translateY(-50%)' }}>
+                                    {displayValue}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Center divider line */}
+                    <div className="absolute inset-x-0 top-1/2 h-[2px] bg-black/60 z-30 -translate-y-1/2" />
+
+                    {/* Metallic binder rings */}
+                    <BinderRing side="left" />
+                    <BinderRing side="right" />
+
+                    {/* Card shadow */}
+                    <div className="absolute -bottom-1 inset-x-0.5 h-2 bg-black/30 rounded-b-md blur-sm -z-10" />
+                </div>
+                <span className="text-[9px] text-gray-500 mt-1 font-medium uppercase tracking-widest">{label}</span>
+            </div>
+        )
+    }
+
+    // Separator dots
     const Separator = () => (
-        <div className="flex flex-col justify-center items-center h-16 px-0.5">
-            <div className="w-1.5 h-1.5 bg-gray-700 rounded-full mb-2" />
-            <div className="w-1.5 h-1.5 bg-gray-700 rounded-full" />
+        <div className="flex flex-col justify-center items-center h-16 px-1">
+            <div className="w-1.5 h-1.5 bg-[#333] rounded-full mb-2 shadow-inner" />
+            <div className="w-1.5 h-1.5 bg-[#333] rounded-full shadow-inner" />
         </div>
     )
 
     return (
-        <div className="flex items-start gap-1 bg-gray-100 p-2 rounded-xl shadow-inner">
-            <FlipCard value={timeLeft.hours} label="Horas" />
+        <div className="flex items-start gap-0.5 bg-gradient-to-b from-[#3a3a3a] to-[#2a2a2a] p-2 rounded-lg shadow-lg border border-[#444]">
+            <FlipDigit value={timeLeft.hours} prevValue={prevTime.hours} isFlipping={flipping.hours} label="Hrs" />
             <Separator />
-            <FlipCard value={timeLeft.minutes} label="Min" />
+            <FlipDigit value={timeLeft.minutes} prevValue={prevTime.minutes} isFlipping={flipping.minutes} label="Min" />
             <Separator />
-            <FlipCard value={timeLeft.seconds} label="Seg" />
+            <FlipDigit value={timeLeft.seconds} prevValue={prevTime.seconds} isFlipping={flipping.seconds} label="Seg" />
         </div>
     )
 }
