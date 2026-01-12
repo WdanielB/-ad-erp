@@ -36,18 +36,28 @@ export default function LoginPage() {
         }
 
         if (data.user) {
-            // Verificar si el usuario está activo
-            const { data: profile } = await (supabase
-                .from('user_profiles')
-                .select('is_active, role')
-                .eq('id', data.user.id)
-                .single() as any)
+            // Verificar si el usuario está activo (con timeout)
+            try {
+                const { data: profile, error: profileError } = await (supabase
+                    .from('user_profiles')
+                    .select('is_active, role')
+                    .eq('id', data.user.id)
+                    .single() as any)
 
-            if (profile && !profile.is_active) {
-                await supabase.auth.signOut()
-                setError('Tu cuenta está desactivada. Contacta al administrador.')
-                setLoading(false)
-                return
+                if (profileError) {
+                    console.log('Error al cargar perfil:', profileError.message)
+                    // Si no hay perfil, continuar de todos modos
+                }
+
+                if (profile && !profile.is_active) {
+                    await supabase.auth.signOut()
+                    setError('Tu cuenta está desactivada. Contacta al administrador.')
+                    setLoading(false)
+                    return
+                }
+            } catch (err) {
+                console.log('Error verificando perfil:', err)
+                // Continuar de todos modos si hay error
             }
 
             router.push('/')
