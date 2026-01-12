@@ -26,58 +26,69 @@ export default function Dashboard() {
         const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString()
         const todayStr = today.toISOString().split('T')[0]
 
-        // 1. Monthly Sales (Sum of income transactions in current month)
-        const { data: salesData, error: salesError } = await (supabase
-          .from('transactions') as any)
-          .select('amount')
-          .eq('type', 'income')
-          .gte('date', firstDayOfMonth)
+        let monthlySales = 0
+        let todayDeliveries = 0
+        let pendingDeliveries = 0
+        let lowStock = 0
 
-        const monthlySales = salesData?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
+        // 1. Monthly Sales - con manejo de error
+        try {
+          const { data: salesData } = await (supabase
+            .from('transactions') as any)
+            .select('amount')
+            .eq('type', 'income')
+            .gte('date', firstDayOfMonth)
+          monthlySales = salesData?.reduce((sum: number, t: any) => sum + (t.amount || 0), 0) || 0
+        } catch (e) {
+          console.log('Error en transactions:', e)
+        }
 
-        // 2. Today's Deliveries
-        const { data: todayOrders, error: ordersError } = await (supabase
-          .from('orders') as any)
-          .select('status')
-          .gte('delivery_date', `${todayStr}T00:00:00`)
-          .lt('delivery_date', `${todayStr}T23:59:59`)
-          .neq('status', 'cancelled')
+        // 2. Today's Deliveries - con manejo de error
+        try {
+          const { data: todayOrders } = await (supabase
+            .from('orders') as any)
+            .select('status')
+            .gte('delivery_date', `${todayStr}T00:00:00`)
+            .lt('delivery_date', `${todayStr}T23:59:59`)
+            .neq('status', 'cancelled')
+          todayDeliveries = todayOrders?.length || 0
+          pendingDeliveries = todayOrders?.filter((o: any) => o.status === 'pending' || o.status === 'preparing').length || 0
+        } catch (e) {
+          console.log('Error en orders:', e)
+        }
 
-        const todayDeliveries = todayOrders?.length || 0
-        const pendingDeliveries = todayOrders?.filter((o: any) => o.status === 'pending' || o.status === 'preparing').length || 0
+        // 3. Low Stock Products - con manejo de error
+        try {
+          const { count } = await (supabase
+            .from('products') as any)
+            .select('*', { count: 'exact', head: true })
+            .lt('stock', 10)
+            .eq('type', 'standard')
+          lowStock = count || 0
+        } catch (e) {
+          console.log('Error en products:', e)
+        }
 
-        // 3. Bucket Alerts (Batches that need water change or stem cut - simplified logic for now)
-        // Assuming 'active' batches might need attention. 
-        // Ideally we'd check last_water_change date vs today.
-        const { count: bucketAlerts } = await (supabase
-          .from('inventory_batches') as any)
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'active')
-        // Logic for "needs attention" would go here. For now, just counting active batches as a placeholder or 0 if no specific logic
-
-        // 4. Low Stock Products (Stock < 10 for example)
-        const { count: lowStock } = await (supabase
-          .from('products') as any)
-          .select('*', { count: 'exact', head: true })
-          .lt('stock', 10)
-          .eq('type', 'standard') // Only standard products usually have direct stock
-
-        // 5. Recent Deliveries (Last 5 completed orders)
-        const { data: recentOrders } = await (supabase
-          .from('orders') as any)
-          .select('*, clients(full_name), order_items(products(name), custom_item_name)')
-          .eq('status', 'delivered')
-          .order('delivery_date', { ascending: false })
-          .limit(5)
+        // 4. Recent Deliveries - con manejo de error
+        try {
+          const { data: recentOrders } = await (supabase
+            .from('orders') as any)
+            .select('*')
+            .eq('status', 'delivered')
+            .order('delivery_date', { ascending: false })
+            .limit(5)
+          setRecentDeliveries(recentOrders || [])
+        } catch (e) {
+          console.log('Error en recent orders:', e)
+        }
 
         setStats({
           monthlySales,
           todayDeliveries,
           pendingDeliveries,
-          bucketAlerts: 0, // Placeholder until specific logic is defined
-          lowStock: lowStock || 0
+          bucketAlerts: 0,
+          lowStock
         })
-        setRecentDeliveries(recentOrders || [])
 
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
