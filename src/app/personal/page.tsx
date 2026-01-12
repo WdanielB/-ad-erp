@@ -51,6 +51,8 @@ type TimeRecord = {
     record_date: string
     clock_in: string | null
     clock_out: string | null
+    break_start: string | null
+    break_end: string | null
     total_hours: number | null
     total_break_minutes: number | null
     status: string
