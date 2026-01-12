@@ -182,8 +182,8 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSuccess }: Empl
 
         if (employee) {
             // Update
-            const { error } = await supabase
-                .from('employees')
+            const { error } = await (supabase
+                .from('employees') as any)
                 .update(dataToSave)
                 .eq('id', employee.id)
             
@@ -195,8 +195,8 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSuccess }: Empl
             setMessage({ type: 'success', text: '✓ Empleado actualizado correctamente' })
         } else {
             // Insert employee
-            const { error, data } = await supabase
-                .from('employees')
+            const { error, data } = await (supabase
+                .from('employees') as any)
                 .insert([dataToSave])
                 .select()
             
