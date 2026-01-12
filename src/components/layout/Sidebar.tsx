@@ -2,22 +2,47 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, ShoppingCart, Package, Wrench, Users, DollarSign, Flower2, Calendar, Settings } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, Wrench, Users, DollarSign, Flower2, Calendar, Settings, UserCog, LogOut, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth, UserRole } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
 
-const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'POS (Ventas)', href: '/pos', icon: ShoppingCart },
-    { name: 'Clientes', href: '/clients', icon: Users },
-    { name: 'Inventario', href: '/inventory', icon: Package },
-    { name: 'Taller', href: '/workshop', icon: Wrench },
-    { name: 'Calendario', href: '/calendar', icon: Calendar },
-    { name: 'Finanzas', href: '/finance', icon: DollarSign },
-    { name: 'Admin', href: '/admin', icon: Settings },
+type NavItem = {
+    name: string
+    href: string
+    icon: React.ElementType
+    roles: UserRole[]
+}
+
+const navigation: NavItem[] = [
+    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['superadmin', 'admin'] },
+    { name: 'Mi Panel', href: '/mi-panel', icon: Clock, roles: ['vendedor', 'florista', 'repartidor'] },
+    { name: 'POS (Ventas)', href: '/pos', icon: ShoppingCart, roles: ['superadmin', 'admin', 'vendedor'] },
+    { name: 'Clientes', href: '/clients', icon: Users, roles: ['superadmin', 'admin', 'vendedor'] },
+    { name: 'Inventario', href: '/inventory', icon: Package, roles: ['superadmin', 'admin', 'florista'] },
+    { name: 'Taller', href: '/workshop', icon: Wrench, roles: ['superadmin', 'admin', 'florista', 'vendedor'] },
+    { name: 'Calendario', href: '/calendar', icon: Calendar, roles: ['superadmin', 'admin', 'vendedor', 'florista', 'repartidor'] },
+    { name: 'Finanzas', href: '/finance', icon: DollarSign, roles: ['superadmin', 'admin'] },
+    { name: 'Personal', href: '/personal', icon: UserCog, roles: ['superadmin', 'admin'] },
+    { name: 'Configuración', href: '/admin/configuracion', icon: Settings, roles: ['superadmin', 'admin'] },
 ]
+
+const roleLabels: Record<UserRole, string> = {
+    superadmin: 'Super Admin',
+    admin: 'Administrador',
+    vendedor: 'Vendedor',
+    florista: 'Florista',
+    repartidor: 'Repartidor'
+}
 
 export function Sidebar() {
     const pathname = usePathname()
+    const { profile, signOut } = useAuth()
+
+    // Filtrar navegación según el rol del usuario
+    const filteredNavigation = navigation.filter(item => 
+        profile ? item.roles.includes(profile.role) : false
+    )
 
     return (
         <div className="flex h-full w-64 flex-col bg-card border-r">
@@ -26,7 +51,7 @@ export function Sidebar() {
                 <span className="text-xl font-bold">Vitora ERP</span>
             </div>
             <nav className="flex-1 space-y-1 px-2 py-4">
-                {navigation.map((item) => {
+                {filteredNavigation.map((item) => {
                     const isActive = pathname === item.href
                     return (
                         <Link
@@ -50,16 +75,29 @@ export function Sidebar() {
                     )
                 })}
             </nav>
-            <div className="p-4 border-t">
+            <div className="p-4 border-t space-y-3">
                 <div className="flex items-center">
                     <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                        A
+                        {profile?.full_name?.[0]?.toUpperCase() || profile?.email?.[0]?.toUpperCase() || 'U'}
                     </div>
-                    <div className="ml-3">
-                        <p className="text-sm font-medium">Admin</p>
-                        <p className="text-xs text-muted-foreground">Florería Vitora</p>
+                    <div className="ml-3 flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                            {profile?.full_name || profile?.email || 'Usuario'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            {profile ? roleLabels[profile.role] : 'Cargando...'}
+                        </p>
                     </div>
                 </div>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full" 
+                    onClick={signOut}
+                >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Cerrar Sesión
+                </Button>
             </div>
         </div>
     )

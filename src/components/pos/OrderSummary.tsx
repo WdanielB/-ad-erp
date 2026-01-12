@@ -10,6 +10,7 @@ import { ClientSearch } from './ClientSearch'
 import { Database } from '@/types/database.types'
 import { supabase } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/contexts/AuthContext'
 import {
     Dialog,
     DialogContent,
@@ -45,6 +46,7 @@ interface OrderSummaryProps {
 
 export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrder, onAddCustomItem, onOrderScheduled }: OrderSummaryProps) {
     const router = useRouter()
+    const { profile } = useAuth()
     const [client, setClient] = useState<Client | null>(null)
     const [loading, setLoading] = useState(false)
     const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0])
@@ -139,7 +141,9 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
                     delivery_fee: isScheduled && deliveryType === 'delivery' ? deliveryFeeAmount : 0,
                     ticket_number: ticketNumber,
                     delivery_latitude: deliveryLocation?.lat || null,
-                    delivery_longitude: deliveryLocation?.lng || null
+                    delivery_longitude: deliveryLocation?.lng || null,
+                    created_by: profile?.id || null,
+                    created_by_name: profile?.full_name || profile?.email || null
                 })
                 .select()
                 .single()

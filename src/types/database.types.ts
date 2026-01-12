@@ -385,6 +385,194 @@ export interface Database {
                     updated_at?: string
                 }
             }
+            employees: {
+                Row: {
+                    id: string
+                    employee_code: string | null
+                    first_name: string
+                    last_name: string
+                    email: string | null
+                    phone: string | null
+                    position: string | null
+                    department: string | null
+                    hire_date: string | null
+                    birth_date: string | null
+                    address: string | null
+                    emergency_contact_name: string | null
+                    emergency_contact_phone: string | null
+                    hourly_rate: number | null
+                    salary: number | null
+                    status: 'active' | 'inactive' | 'on_leave' | 'terminated'
+                    photo_url: string | null
+                    notes: string | null
+                    custom_fields: Record<string, any> | null
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    employee_code?: string | null
+                    first_name: string
+                    last_name: string
+                    email?: string | null
+                    phone?: string | null
+                    position?: string | null
+                    department?: string | null
+                    hire_date?: string | null
+                    birth_date?: string | null
+                    address?: string | null
+                    emergency_contact_name?: string | null
+                    emergency_contact_phone?: string | null
+                    hourly_rate?: number | null
+                    salary?: number | null
+                    status?: 'active' | 'inactive' | 'on_leave' | 'terminated'
+                    photo_url?: string | null
+                    notes?: string | null
+                    custom_fields?: Record<string, any> | null
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    employee_code?: string | null
+                    first_name?: string
+                    last_name?: string
+                    email?: string | null
+                    phone?: string | null
+                    position?: string | null
+                    department?: string | null
+                    hire_date?: string | null
+                    birth_date?: string | null
+                    address?: string | null
+                    emergency_contact_name?: string | null
+                    emergency_contact_phone?: string | null
+                    hourly_rate?: number | null
+                    salary?: number | null
+                    status?: 'active' | 'inactive' | 'on_leave' | 'terminated'
+                    photo_url?: string | null
+                    notes?: string | null
+                    custom_fields?: Record<string, any> | null
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            time_records: {
+                Row: {
+                    id: string
+                    employee_id: string
+                    record_date: string
+                    clock_in: string | null
+                    clock_out: string | null
+                    break_start: string | null
+                    break_end: string | null
+                    total_break_minutes: number | null
+                    total_work_minutes: number | null
+                    total_hours: number | null
+                    overtime_minutes: number | null
+                    status: 'in_progress' | 'completed' | 'approved' | 'rejected'
+                    notes: string | null
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    employee_id: string
+                    record_date?: string
+                    clock_in?: string | null
+                    clock_out?: string | null
+                    break_start?: string | null
+                    break_end?: string | null
+                    total_break_minutes?: number | null
+                    total_work_minutes?: number | null
+                    total_hours?: number | null
+                    overtime_minutes?: number | null
+                    status?: 'in_progress' | 'completed' | 'approved' | 'rejected'
+                    notes?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    employee_id?: string
+                    record_date?: string
+                    clock_in?: string | null
+                    clock_out?: string | null
+                    break_start?: string | null
+                    break_end?: string | null
+                    total_break_minutes?: number | null
+                    total_work_minutes?: number | null
+                    total_hours?: number | null
+                    overtime_minutes?: number | null
+                    status?: 'in_progress' | 'completed' | 'approved' | 'rejected'
+                    notes?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            time_breaks: {
+                Row: {
+                    id: string
+                    time_record_id: string
+                    break_start: string
+                    break_end: string | null
+                    break_type: string | null
+                    duration_minutes: number | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    time_record_id: string
+                    break_start: string
+                    break_end?: string | null
+                    break_type?: string | null
+                    duration_minutes?: number | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    time_record_id?: string
+                    break_start?: string
+                    break_end?: string | null
+                    break_type?: string | null
+                    duration_minutes?: number | null
+                    created_at?: string
+                }
+            }
+            employee_custom_fields: {
+                Row: {
+                    id: string
+                    field_name: string
+                    field_label: string
+                    field_type: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'textarea'
+                    options: any[] | null
+                    is_required: boolean | null
+                    is_active: boolean | null
+                    display_order: number | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    field_name: string
+                    field_label: string
+                    field_type: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'textarea'
+                    options?: any[] | null
+                    is_required?: boolean | null
+                    is_active?: boolean | null
+                    display_order?: number | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    field_name?: string
+                    field_label?: string
+                    field_type?: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'textarea'
+                    options?: any[] | null
+                    is_required?: boolean | null
+                    is_active?: boolean | null
+                    display_order?: number | null
+                    created_at?: string
+                }
+            }
         }
         Views: {
             [_ in never]: never
@@ -397,6 +585,9 @@ export interface Database {
             order_status: 'pending' | 'paid' | 'preparing' | 'delivered' | 'cancelled'
             batch_status: 'active' | 'empty' | 'discarded'
             transaction_type: 'income' | 'expense'
+            employee_status: 'active' | 'inactive' | 'on_leave' | 'terminated'
+            time_record_status: 'in_progress' | 'completed' | 'approved' | 'rejected'
+            custom_field_type: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'textarea'
         }
     }
 }
