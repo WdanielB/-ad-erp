@@ -60,8 +60,9 @@ export default function LoginPage() {
                 // Continuar de todos modos si hay error
             }
 
-            router.push('/')
-            router.refresh()
+            // Usar window.location para forzar redirección completa
+            window.location.href = '/'
+            return
         }
 
         setLoading(false)
