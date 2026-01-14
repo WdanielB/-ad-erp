@@ -38,14 +38,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         // Obtener sesión inicial
         const getInitialSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession()
-            setSession(session)
-            setUser(session?.user ?? null)
-            
-            if (session?.user) {
-                await fetchProfile(session.user.id)
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession()
+                
+                // Si hay error de refresh token, intentar limpiar y continuar
+                if (error) {
+                    console.warn('Error getting session:', error.message)
+                    // No cerrar sesión automáticamente, dejar que el usuario lo haga
+                }
+                
+                setSession(session)
+                setUser(session?.user ?? null)
+                
+                if (session?.user) {
+                    await fetchProfile(session.user.id)
+                }
+            } catch (err) {
+                console.error('Session error:', err)
+            } finally {
+                setLoading(false)
             }
-            setLoading(false)
         }
 
         getInitialSession()
@@ -53,6 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Escuchar cambios de autenticación
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
+                console.log('Auth event:', event)
+                
+                // Manejar eventos específicos
+                if (event === 'TOKEN_REFRESHED') {
+                    console.log('Token refreshed successfully')
+                }
+                
+                if (event === 'SIGNED_OUT') {
+                    setProfile(null)
+                    setUser(null)
+                    setSession(null)
+                    return
+                }
+                
                 setSession(session)
                 setUser(session?.user ?? null)
                 
@@ -65,7 +91,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         )
 
-        return () => subscription.unsubscribe()
+        // Refrescar sesión periódicamente (cada 10 minutos)
+        const refreshInterval = setInterval(async () => {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session) {
+                const { error } = await supabase.auth.refreshSession()
+                if (error) {
+                    console.warn('Failed to refresh session:', error.message)
+                }
+            }
+        }, 10 * 60 * 1000) // 10 minutos
+
+        return () => {
+            subscription.unsubscribe()
+            clearInterval(refreshInterval)
+        }
     }, [])
 
     const fetchProfile = async (userId: string) => {
