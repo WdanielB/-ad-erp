@@ -36,93 +36,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const router = useRouter()
 
     useEffect(() => {
-        // Timeout de seguridad - nunca quedarse en loading más de 5 segundos
-        const loadingTimeout = setTimeout(() => {
-            if (loading) {
-                console.warn('Loading timeout reached, forcing loading to false')
-                setLoading(false)
-            }
-        }, 5000)
+        let isMounted = true
 
         // Obtener sesión inicial
-        const getInitialSession = async () => {
+        const initializeAuth = async () => {
             try {
-                const { data: { session }, error } = await supabase.auth.getSession()
+                const { data: { session } } = await supabase.auth.getSession()
                 
-                // Si hay error de refresh token, intentar limpiar y continuar
-                if (error) {
-                    console.warn('Error getting session:', error.message)
-                    // No cerrar sesión automáticamente, dejar que el usuario lo haga
-                }
-                
-                setSession(session)
-                setUser(session?.user ?? null)
+                if (!isMounted) return
                 
                 if (session?.user) {
-                    await fetchProfile(session.user.id)
+                    setSession(session)
+                    setUser(session.user)
+                    // Cargar perfil en background, no bloquear
+                    fetchProfile(session.user.id)
                 }
             } catch (err) {
-                console.error('Session error:', err)
+                console.error('Auth init error:', err)
             } finally {
-                setLoading(false)
+                if (isMounted) {
+                    setLoading(false)
+                }
             }
         }
 
-        getInitialSession()
+        initializeAuth()
 
         // Escuchar cambios de autenticación
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
-                console.log('Auth event:', event)
+                if (!isMounted) return
                 
-                // Manejar eventos específicos
-                if (event === 'TOKEN_REFRESHED') {
-                    console.log('Token refreshed successfully')
-                }
+                console.log('Auth event:', event)
                 
                 if (event === 'SIGNED_OUT') {
                     setProfile(null)
                     setUser(null)
                     setSession(null)
-                    setLoading(false)
                     return
                 }
-                
-                if (event === 'SIGNED_IN' && session?.user) {
-                    setSession(session)
-                    setUser(session.user)
-                    await fetchProfile(session.user.id)
-                    setLoading(false)
-                    return
-                }
-                
-                setSession(session)
-                setUser(session?.user ?? null)
                 
                 if (session?.user) {
-                    await fetchProfile(session.user.id)
+                    setSession(session)
+                    setUser(session.user)
+                    // Cargar perfil en background
+                    fetchProfile(session.user.id)
                 } else {
+                    setSession(null)
+                    setUser(null)
                     setProfile(null)
                 }
-                setLoading(false)
             }
         )
 
-        // Refrescar sesión periódicamente (cada 10 minutos)
-        const refreshInterval = setInterval(async () => {
-            const { data: { session } } = await supabase.auth.getSession()
-            if (session) {
-                const { error } = await supabase.auth.refreshSession()
-                if (error) {
-                    console.warn('Failed to refresh session:', error.message)
-                }
-            }
-        }, 10 * 60 * 1000) // 10 minutos
-
         return () => {
+            isMounted = false
             subscription.unsubscribe()
-            clearInterval(refreshInterval)
-            clearTimeout(loadingTimeout)
         }
     }, [])
 

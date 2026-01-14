@@ -1,15 +1,24 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { useAuth } from '@/contexts/AuthContext'
 import { Loader2 } from 'lucide-react'
+import { useEffect } from 'react'
 
 const publicRoutes = ['/login', '/no-access', '/']
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
+    const router = useRouter()
     const { user, loading } = useAuth()
+
+    // Redirigir a login si no hay usuario y no es ruta pública
+    useEffect(() => {
+        if (!loading && !user && !publicRoutes.includes(pathname)) {
+            router.replace('/login')
+        }
+    }, [loading, user, pathname, router])
 
     // Rutas públicas (sin sidebar, sin protección)
     if (publicRoutes.includes(pathname)) {
@@ -28,7 +37,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         )
     }
 
-    // Si no hay usuario y no es ruta pública, el ProtectedRoute redirigirá
+    // Si no hay usuario, mostrar loading mientras redirige
     if (!user) {
         return (
             <div className="flex h-screen items-center justify-center bg-background">

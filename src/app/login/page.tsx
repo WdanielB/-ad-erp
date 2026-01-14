@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,21 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
+    const [checkingSession, setCheckingSession] = useState(true)
     const router = useRouter()
+
+    // Verificar si ya hay sesión activa
+    useEffect(() => {
+        const checkSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session) {
+                router.replace('/pos')
+            } else {
+                setCheckingSession(false)
+            }
+        }
+        checkSession()
+    }, [router])
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -36,45 +50,26 @@ export default function LoginPage() {
                 return
             }
 
-            if (data.user) {
-                // Verificar si el usuario está activo con timeout de 3 segundos
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('timeout')), 3000)
-                )
-                
-                try {
-                    const profilePromise = supabase
-                        .from('user_profiles')
-                        .select('is_active, role')
-                        .eq('id', data.user.id)
-                        .single()
-                    
-                    const { data: profile } = await Promise.race([
-                        profilePromise,
-                        timeoutPromise
-                    ]) as any
-
-                    if (profile && !profile.is_active) {
-                        await supabase.auth.signOut()
-                        setError('Tu cuenta está desactivada. Contacta al administrador.')
-                        setLoading(false)
-                        return
-                    }
-                } catch (err) {
-                    // Si hay timeout o error, continuar de todos modos
-                    console.log('Profile check skipped:', err)
-                }
-
-                // Redirigir al dashboard
-                window.location.href = '/'
+            if (data.session) {
+                // Login exitoso - redirigir al POS
+                // El AuthContext se encargará de cargar el perfil
+                router.push('/pos')
                 return
             }
         } catch (err) {
             console.error('Login error:', err)
             setError('Error al iniciar sesión. Intenta de nuevo.')
+            setLoading(false)
         }
-        
-        setLoading(false)
+    }
+
+    // Mostrar loading mientras verifica sesión
+    if (checkingSession) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-pink-50">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        )
     }
 
     return (
