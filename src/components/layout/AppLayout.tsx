@@ -5,7 +5,7 @@ import { Sidebar } from './Sidebar'
 import { useAuth } from '@/contexts/AuthContext'
 import { Loader2 } from 'lucide-react'
 
-const publicRoutes = ['/login', '/no-access']
+const publicRoutes = ['/login', '/no-access', '/']
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
