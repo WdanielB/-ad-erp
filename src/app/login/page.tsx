@@ -22,49 +22,58 @@ export default function LoginPage() {
         setLoading(true)
         setError(null)
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        })
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            })
 
-        if (error) {
-            setError(error.message === 'Invalid login credentials' 
-                ? 'Credenciales inválidas. Verifica tu email y contraseña.'
-                : error.message)
-            setLoading(false)
-            return
-        }
-
-        if (data.user) {
-            // Verificar si el usuario está activo (con timeout)
-            try {
-                const { data: profile, error: profileError } = await (supabase
-                    .from('user_profiles')
-                    .select('is_active, role')
-                    .eq('id', data.user.id)
-                    .single() as any)
-
-                if (profileError) {
-                    console.log('Error al cargar perfil:', profileError.message)
-                    // Si no hay perfil, continuar de todos modos
-                }
-
-                if (profile && !profile.is_active) {
-                    await supabase.auth.signOut()
-                    setError('Tu cuenta está desactivada. Contacta al administrador.')
-                    setLoading(false)
-                    return
-                }
-            } catch (err) {
-                console.log('Error verificando perfil:', err)
-                // Continuar de todos modos si hay error
+            if (error) {
+                setError(error.message === 'Invalid login credentials' 
+                    ? 'Credenciales inválidas. Verifica tu email y contraseña.'
+                    : error.message)
+                setLoading(false)
+                return
             }
 
-            // Usar window.location para forzar redirección completa
-            window.location.href = '/'
-            return
-        }
+            if (data.user) {
+                // Verificar si el usuario está activo con timeout de 3 segundos
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('timeout')), 3000)
+                )
+                
+                try {
+                    const profilePromise = supabase
+                        .from('user_profiles')
+                        .select('is_active, role')
+                        .eq('id', data.user.id)
+                        .single()
+                    
+                    const { data: profile } = await Promise.race([
+                        profilePromise,
+                        timeoutPromise
+                    ]) as any
 
+                    if (profile && !profile.is_active) {
+                        await supabase.auth.signOut()
+                        setError('Tu cuenta está desactivada. Contacta al administrador.')
+                        setLoading(false)
+                        return
+                    }
+                } catch (err) {
+                    // Si hay timeout o error, continuar de todos modos
+                    console.log('Profile check skipped:', err)
+                }
+
+                // Redirigir al dashboard
+                window.location.href = '/'
+                return
+            }
+        } catch (err) {
+            console.error('Login error:', err)
+            setError('Error al iniciar sesión. Intenta de nuevo.')
+        }
+        
         setLoading(false)
     }
 
