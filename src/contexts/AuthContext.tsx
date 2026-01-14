@@ -36,6 +36,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const router = useRouter()
 
     useEffect(() => {
+        // Timeout de seguridad - nunca quedarse en loading más de 5 segundos
+        const loadingTimeout = setTimeout(() => {
+            if (loading) {
+                console.warn('Loading timeout reached, forcing loading to false')
+                setLoading(false)
+            }
+        }, 5000)
+
         // Obtener sesión inicial
         const getInitialSession = async () => {
             try {
@@ -76,6 +84,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setProfile(null)
                     setUser(null)
                     setSession(null)
+                    setLoading(false)
+                    return
+                }
+                
+                if (event === 'SIGNED_IN' && session?.user) {
+                    setSession(session)
+                    setUser(session.user)
+                    await fetchProfile(session.user.id)
+                    setLoading(false)
                     return
                 }
                 
@@ -105,18 +122,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return () => {
             subscription.unsubscribe()
             clearInterval(refreshInterval)
+            clearTimeout(loadingTimeout)
         }
     }, [])
 
     const fetchProfile = async (userId: string) => {
-        const { data, error } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', userId)
-            .single()
-        
-        if (data && !error) {
-            setProfile(data as UserProfile)
+        try {
+            const { data, error } = await supabase
+                .from('user_profiles')
+                .select('*')
+                .eq('id', userId)
+                .single()
+            
+            if (data && !error) {
+                setProfile(data as UserProfile)
+            } else {
+                console.warn('Error fetching profile:', error?.message)
+                setProfile(null)
+            }
+        } catch (err) {
+            console.error('Error in fetchProfile:', err)
+            setProfile(null)
         }
     }
 
