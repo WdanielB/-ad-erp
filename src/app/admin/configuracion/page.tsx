@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from '@/utils/supabase/client'
 import { 
     MapPin, Save, Loader2, Building2, Clock, 
-    Navigation, Target, CheckCircle2, AlertCircle
+    Navigation, Target, CheckCircle2, AlertCircle, DollarSign, Truck
 } from 'lucide-react'
 import { toast } from "sonner"
 
@@ -21,6 +21,7 @@ type BusinessSettings = {
     business_longitude: string
     allowed_radius_meters: string
     require_location_for_clock: string
+    delivery_fee_default: string
 }
 
 export default function ConfiguracionPage() {
@@ -32,7 +33,8 @@ export default function ConfiguracionPage() {
         business_latitude: '',
         business_longitude: '',
         allowed_radius_meters: '100',
-        require_location_for_clock: 'true'
+        require_location_for_clock: 'true',
+        delivery_fee_default: '10'
     })
 
     useEffect(() => {
@@ -125,6 +127,10 @@ export default function ConfiguracionPage() {
                         <TabsTrigger value="ubicacion" className="flex items-center gap-2">
                             <MapPin className="h-4 w-4" />
                             Ubicación
+                        </TabsTrigger>
+                        <TabsTrigger value="precios" className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            Precios
                         </TabsTrigger>
                         <TabsTrigger value="negocio" className="flex items-center gap-2">
                             <Building2 className="h-4 w-4" />
@@ -260,6 +266,59 @@ export default function ConfiguracionPage() {
                                         </div>
                                     </div>
                                 )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    <TabsContent value="precios">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <DollarSign className="h-5 w-5" />
+                                    Configuración de Precios
+                                </CardTitle>
+                                <CardDescription>
+                                    Define los precios por defecto para el sistema
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* Delivery Fee */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
+                                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <Truck className="h-5 w-5 text-primary" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <Label htmlFor="delivery_fee" className="text-base font-medium">
+                                                Precio de Delivery por Defecto
+                                            </Label>
+                                            <p className="text-sm text-muted-foreground">
+                                                Este valor se aplicará automáticamente cuando se agregue delivery a una orden
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-lg font-medium">S/</span>
+                                        <Input
+                                            id="delivery_fee"
+                                            type="number"
+                                            min="0"
+                                            step="0.50"
+                                            value={settings.delivery_fee_default}
+                                            onChange={(e) => setSettings(prev => ({ 
+                                                ...prev, 
+                                                delivery_fee_default: e.target.value 
+                                            }))}
+                                            className="w-32 text-lg"
+                                            placeholder="10.00"
+                                        />
+                                    </div>
+                                    
+                                    <p className="text-xs text-muted-foreground">
+                                        💡 Puedes modificar el precio de delivery individualmente en cada orden si es necesario
+                                    </p>
+                                </div>
                             </CardContent>
                         </Card>
                     </TabsContent>

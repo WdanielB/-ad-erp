@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Check, Clock, Package, Truck, MapPin, Calendar } from 'lucide-react'
+import { Check, Clock, Package, Truck, MapPin, Calendar, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog'
 
 type Order = Database['public']['Tables']['orders']['Row'] & {
-    clients: { full_name: string } | null
+    clients: { full_name: string; phone?: string } | null
     order_items: Array<{
         quantity: number
         custom_item_name: string | null
@@ -39,14 +39,14 @@ export function WorkshopOrderList() {
         // Fetch Pending/Preparing
         const { data: active } = await supabase
             .from('orders')
-            .select('*, clients(full_name), order_items(quantity, custom_item_name, products(name))')
+            .select('*, clients(full_name, phone), order_items(quantity, custom_item_name, products(name))')
             .in('status', ['pending', 'preparing'])
             .order('delivery_date', { ascending: true })
 
         // Fetch Delivered (Last 20)
         const { data: completed } = await supabase
             .from('orders')
-            .select('*, clients(full_name), order_items(quantity, custom_item_name, products(name))')
+            .select('*, clients(full_name, phone), order_items(quantity, custom_item_name, products(name))')
             .eq('status', 'delivered')
             .order('delivery_date', { ascending: false })
             .limit(20)
@@ -125,6 +125,15 @@ export function WorkshopOrderList() {
                     </Badge>
                 </div>
                 <div className="text-sm font-medium">{order.clients?.full_name || 'Cliente Eventual'}</div>
+                {(order.client_phone || order.clients?.phone) && (
+                    <a 
+                        href={`tel:${order.client_phone || order.clients?.phone}`} 
+                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                        <Phone className="h-3 w-3" />
+                        {order.client_phone || order.clients?.phone}
+                    </a>
+                )}
             </CardHeader>
             <CardContent className="pb-2 text-sm space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">

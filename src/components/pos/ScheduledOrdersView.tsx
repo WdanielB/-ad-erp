@@ -1,9 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Calendar, Check, X, Ticket, Loader2, MapPin } from 'lucide-react'
+import { Calendar, Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
     Table,
     TableBody,
@@ -17,6 +20,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogFooter,
 } from '@/components/ui/dialog'
 import {
     AlertDialog,
@@ -59,6 +63,12 @@ export function ScheduledOrdersView() {
     const [processingId, setProcessingId] = useState<string | null>(null)
     const [orderToComplete, setOrderToComplete] = useState<string | null>(null)
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null)
+    const [searchPhone, setSearchPhone] = useState('')
+    const [editingOrder, setEditingOrder] = useState<OrderWithPayment | null>(null)
+    const [editDeliveryDate, setEditDeliveryDate] = useState('')
+    const [editDeliveryTime, setEditDeliveryTime] = useState('')
+    const [editDeliveryType, setEditDeliveryType] = useState<'delivery' | 'pickup'>('pickup')
+    const [savingEdit, setSavingEdit] = useState(false)
 
     async function fetchScheduledOrders() {
         setLoading(true)
@@ -201,13 +211,69 @@ export function ScheduledOrdersView() {
         fetchScheduledOrders()
     }, [])
 
+    // Filtrar pedidos por teléfono
+    const filteredOrders = orders.filter(order => {
+        if (!searchPhone) return true
+        const phone = order.client_phone || ''
+        return phone.includes(searchPhone)
+    })
+
+    // Abrir modal de edición
+    function openEditModal(order: OrderWithPayment) {
+        const date = new Date(order.delivery_date)
+        setEditDeliveryDate(format(date, 'yyyy-MM-dd'))
+        setEditDeliveryTime(format(date, 'HH:mm'))
+        setEditDeliveryType(order.delivery_type as 'delivery' | 'pickup')
+        setEditingOrder(order)
+    }
+
+    // Guardar edición
+    async function saveOrderEdit() {
+        if (!editingOrder) return
+        setSavingEdit(true)
+
+        try {
+            const newDeliveryDate = new Date(`${editDeliveryDate}T${editDeliveryTime}:00`)
+            
+            const { error } = await (supabase
+                .from('orders') as any)
+                .update({
+                    delivery_date: newDeliveryDate.toISOString(),
+                    delivery_type: editDeliveryType
+                })
+                .eq('id', editingOrder.id)
+
+            if (error) throw error
+
+            alert('Pedido actualizado correctamente')
+            setEditingOrder(null)
+            await fetchScheduledOrders()
+        } catch (error) {
+            console.error('Error updating order:', error)
+            alert('Error al actualizar el pedido')
+        } finally {
+            setSavingEdit(false)
+        }
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold">Pedidos Agendados</h2>
-                <Button onClick={fetchScheduledOrders} variant="outline" size="sm">
-                    Actualizar
-                </Button>
+                <div className="flex items-center gap-2">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Buscar por teléfono..."
+                            value={searchPhone}
+                            onChange={(e) => setSearchPhone(e.target.value)}
+                            className="pl-8 w-48"
+                        />
+                    </div>
+                    <Button onClick={fetchScheduledOrders} variant="outline" size="sm">
+                        Actualizar
+                    </Button>
+                </div>
             </div>
 
             <div className="rounded-md border">
@@ -217,16 +283,16 @@ export function ScheduledOrdersView() {
                             <TableHead>Ticket</TableHead>
                             <TableHead>Fecha/Hora</TableHead>
                             <TableHead>Cliente</TableHead>
+                            <TableHead>Teléfono</TableHead>
                             <TableHead>Tipo</TableHead>
                             <TableHead>Total</TableHead>
                             <TableHead>Adelanto</TableHead>
                             <TableHead>Saldo</TableHead>
-                            <TableHead>Estado</TableHead>
                             <TableHead>Acciones</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {orders.map((order) => (
+                        {filteredOrders.map((order) => (
                             <TableRow
                                 key={order.id}
                                 style={{
@@ -243,6 +309,14 @@ export function ScheduledOrdersView() {
                                     {format(new Date(order.delivery_date), 'dd/MM/yyyy HH:mm', { locale: es })}
                                 </TableCell>
                                 <TableCell>{order.clients?.full_name || 'Sin cliente'}</TableCell>
+                                <TableCell>
+                                    {order.client_phone ? (
+                                        <a href={`tel:${order.client_phone}`} className="flex items-center gap-1 text-blue-600 hover:underline">
+                                            <Phone className="h-3 w-3" />
+                                            {order.client_phone}
+                                        </a>
+                                    ) : '-'}
+                                </TableCell>
                                 <TableCell>
                                     <Badge variant="outline">
                                         {order.delivery_type === 'delivery' ? 'Entrega' : 'Recojo'}
@@ -264,16 +338,22 @@ export function ScheduledOrdersView() {
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                    <Badge>{order.status}</Badge>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-1">
                                         <Button
                                             size="sm"
                                             variant="outline"
                                             onClick={() => fetchOrderDetails(order.id)}
+                                            title="Ver detalles"
                                         >
                                             Ver
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => openEditModal(order)}
+                                            title="Editar fecha/hora"
+                                        >
+                                            <Edit className="h-4 w-4" />
                                         </Button>
                                         <Button
                                             size="sm"
@@ -305,10 +385,10 @@ export function ScheduledOrdersView() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {orders.length === 0 && (
+                        {filteredOrders.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                                    No hay pedidos agendados pendientes
+                                    {searchPhone ? 'No se encontraron pedidos con ese teléfono' : 'No hay pedidos agendados pendientes'}
                                 </TableCell>
                             </TableRow>
                         )}
@@ -448,6 +528,61 @@ export function ScheduledOrdersView() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* Modal de Edición */}
+            <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Edit className="h-5 w-5" />
+                            Editar Pedido #{editingOrder?.ticket_number || ''}
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="edit-date">Fecha de Entrega</Label>
+                                <Input
+                                    id="edit-date"
+                                    type="date"
+                                    value={editDeliveryDate}
+                                    onChange={(e) => setEditDeliveryDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="edit-time">Hora de Entrega</Label>
+                                <Input
+                                    id="edit-time"
+                                    type="time"
+                                    value={editDeliveryTime}
+                                    onChange={(e) => setEditDeliveryTime(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="edit-type">Tipo de Entrega</Label>
+                            <Select value={editDeliveryType} onValueChange={(v) => setEditDeliveryType(v as 'delivery' | 'pickup')}>
+                                <SelectTrigger id="edit-type">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="pickup">Recojo en tienda</SelectItem>
+                                    <SelectItem value="delivery">Delivery</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditingOrder(null)}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={saveOrderEdit} disabled={savingEdit}>
+                            {savingEdit ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Guardar Cambios
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

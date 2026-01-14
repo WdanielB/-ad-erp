@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Flower2, Loader2, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Eye, EyeOff } from 'lucide-react'
 import { supabase } from '@/utils/supabase/client'
 
 export default function LoginPage() {
@@ -66,24 +66,27 @@ export default function LoginPage() {
     // Mostrar loading mientras verifica sesión
     if (checkingSession) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-pink-50">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#1e212b' }}>
+                <Loader2 className="h-8 w-8 animate-spin text-white" />
             </div>
         )
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-pink-50">
+        <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#1e212b' }}>
             <Card className="w-full max-w-md mx-4 shadow-lg">
                 <CardHeader className="text-center space-y-4">
-                    <div className="flex justify-center">
-                        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                            <Flower2 className="h-10 w-10 text-primary" />
-                        </div>
+                    <div className="flex justify-center overflow-hidden">
+                        <img 
+                            src="https://cdn.shopify.com/s/files/1/0649/4083/4883/files/ICONOS_y_LOGOS.png?v=1768371235" 
+                            alt="Vitora Logo" 
+                            className="w-56 object-cover object-center"
+                            style={{ height: '80px', objectFit: 'cover' }}
+                        />
                     </div>
                     <div>
                         <CardTitle className="text-2xl font-bold">Vitora ERP</CardTitle>
-                        <CardDescription>Florería Vitora - Sistema de Gestión</CardDescription>
+                        <CardDescription>Sistema de Gestión</CardDescription>
                     </div>
                 </CardHeader>
                 <CardContent>

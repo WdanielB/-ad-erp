@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, ShoppingCart, Package, Wrench, Users, DollarSign, Flower2, Calendar, Settings, UserCog, LogOut, Clock } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, Wrench, Users, DollarSign, Calendar, Settings, UserCog, LogOut, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth, UserRole } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -46,9 +46,13 @@ export function Sidebar() {
 
     return (
         <div className="flex h-full w-64 flex-col bg-card border-r">
-            <div className="flex h-16 items-center px-6 border-b">
-                <Flower2 className="h-6 w-6 text-primary mr-2" />
-                <span className="text-xl font-bold">Vitora ERP</span>
+            <div className="flex h-16 items-center justify-center px-4 border-b overflow-hidden">
+                <img 
+                    src="https://cdn.shopify.com/s/files/1/0649/4083/4883/files/ICONOS_y_LOGOS.png?v=1768371235" 
+                    alt="Vitora" 
+                    className="w-40 object-cover object-center"
+                    style={{ height: '60px', objectFit: 'cover' }}
+                />
             </div>
             <nav className="flex-1 space-y-1 px-2 py-4">
                 {filteredNavigation.map((item) => {
