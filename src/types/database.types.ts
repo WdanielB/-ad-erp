@@ -44,6 +44,7 @@ export interface Database {
                     care_days_cut: number | null
                     labor_cost: number | null
                     units_per_package: number | null
+                    main_flower_id: string | null
                     is_active: boolean | null
                     created_at: string
                 }
@@ -64,6 +65,7 @@ export interface Database {
                     care_days_cut?: number | null
                     labor_cost?: number | null
                     units_per_package?: number | null
+                    main_flower_id?: string | null
                     is_active?: boolean | null
                     created_at?: string
                 }
@@ -84,6 +86,7 @@ export interface Database {
                     care_days_cut?: number | null
                     labor_cost?: number | null
                     units_per_package?: number | null
+                    main_flower_id?: string | null
                     is_active?: boolean | null
                     created_at?: string
                 }

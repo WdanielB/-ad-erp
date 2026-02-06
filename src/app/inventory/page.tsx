@@ -26,6 +26,7 @@ import {
 import { AddStockDialog } from '@/components/inventory/AddStockDialog'
 import { ShrinkageDialog } from '@/components/inventory/ShrinkageDialog'
 import { ProductDialog } from '@/components/inventory/ProductDialog'
+import { CSVImportDialog } from '@/components/inventory/CSVImportDialog'
 import { supabase } from '@/utils/supabase/client'
 import { Database } from '@/types/database.types'
 
@@ -82,7 +83,8 @@ export default function InventoryPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold tracking-tight">Inventario</h1>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                    <CSVImportDialog onImportComplete={fetchProducts} />
                     <AddStockDialog products={products} onStockAdded={fetchProducts} />
                     <ShrinkageDialog products={products} onShrinkageRecorded={fetchProducts} />
                     <Link href="/inventory/batches">

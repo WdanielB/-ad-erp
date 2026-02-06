@@ -1,0 +1,349 @@
+'use client'
+
+import { useState, useRef } from 'react'
+import { Upload, FileSpreadsheet, Loader2, Check, AlertCircle, Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogFooter,
+} from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { supabase } from '@/utils/supabase/client'
+
+interface CSVProduct {
+    name: string
+    type: 'standard' | 'flower' | 'composite'
+    price: number
+    cost: number
+    stock: number
+    sku: string
+    description: string
+    flower_color_name: string
+    flower_color_hex: string
+    care_days_water: number
+    care_days_cut: number
+    labor_cost: number
+    main_flower: string // name of main flower (will resolve to ID)
+    recipe: string // Format: "Rosa Roja:5,Gypsophila:3" (product_name:quantity)
+    units_per_package: number
+}
+
+interface ImportResult {
+    success: number
+    errors: string[]
+}
+
+interface CSVImportDialogProps {
+    onImportComplete: () => void
+}
+
+export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
+    const [open, setOpen] = useState(false)
+    const [csvData, setCsvData] = useState<CSVProduct[]>([])
+    const [importing, setImporting] = useState(false)
+    const [result, setResult] = useState<ImportResult | null>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    function downloadTemplate() {
+        const headers = [
+            'name', 'type', 'price', 'cost', 'stock', 'sku', 'description',
+            'flower_color_name', 'flower_color_hex', 'care_days_water', 'care_days_cut',
+            'labor_cost', 'main_flower', 'recipe', 'units_per_package'
+        ]
+        const exampleRows = [
+            ['Rosa Roja Importada', 'flower', '5', '2.5', '100', 'ROSA-ROJA', 'Rosa premium importada',
+                'Rojo', '#FF0000', '2', '3', '', '', '', '25'],
+            ['Gypsophila', 'flower', '3', '1.5', '50', 'GYPS-01', 'Flor de relleno',
+                'Blanco', '#FFFFFF', '3', '4', '', '', '', '10'],
+            ['Ramo Clásico 12 Rosas', 'composite', '120', '60', '', 'RAMO-12R', 'Ramo de 12 rosas rojas',
+                '', '', '', '', '15', 'Rosa Roja Importada', 'Rosa Roja Importada:12,Gypsophila:5', ''],
+        ]
+
+        const csvContent = [headers.join(','), ...exampleRows.map(r => r.join(','))].join('\n')
+        const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'plantilla_productos.csv'
+        a.click()
+        URL.revokeObjectURL(url)
+    }
+
+    function parseCSV(text: string): CSVProduct[] {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+        if (lines.length < 2) return []
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+        const products: CSVProduct[] = []
+
+        for (let i = 1; i < lines.length; i++) {
+            // Handle quoted values with commas inside
+            const values: string[] = []
+            let current = ''
+            let inQuotes = false
+            for (const char of lines[i]) {
+                if (char === '"') { inQuotes = !inQuotes }
+                else if (char === ',' && !inQuotes) { values.push(current.trim()); current = '' }
+                else { current += char }
+            }
+            values.push(current.trim())
+
+            const product: any = {}
+            headers.forEach((header, idx) => {
+                product[header] = values[idx] || ''
+            })
+
+            products.push({
+                name: product.name || '',
+                type: (['standard', 'flower', 'composite'].includes(product.type) ? product.type : 'standard') as any,
+                price: parseFloat(product.price) || 0,
+                cost: parseFloat(product.cost) || 0,
+                stock: parseInt(product.stock) || 0,
+                sku: product.sku || '',
+                description: product.description || '',
+                flower_color_name: product.flower_color_name || '',
+                flower_color_hex: product.flower_color_hex || '',
+                care_days_water: parseInt(product.care_days_water) || 2,
+                care_days_cut: parseInt(product.care_days_cut) || 3,
+                labor_cost: parseFloat(product.labor_cost) || 0,
+                main_flower: product.main_flower || '',
+                recipe: product.recipe || '',
+                units_per_package: parseInt(product.units_per_package) || 0,
+            })
+        }
+
+        return products.filter(p => p.name)
+    }
+
+    function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            const text = event.target?.result as string
+            const parsed = parseCSV(text)
+            setCsvData(parsed)
+            setResult(null)
+        }
+        reader.readAsText(file, 'UTF-8')
+    }
+
+    async function handleImport() {
+        if (csvData.length === 0) return
+        setImporting(true)
+        const errors: string[] = []
+        let success = 0
+
+        try {
+            // First, get existing products for reference (main_flower and recipe resolution)
+            const { data: existingRaw } = await supabase
+                .from('products')
+                .select('id, name')
+
+            const existingProducts = (existingRaw ?? []) as { id: string; name: string }[]
+            const productNameToId: Record<string, string> = {}
+            existingProducts.forEach(p => {
+                productNameToId[p.name.toLowerCase()] = p.id
+            })
+
+            // Import products in order: flowers first, then standard, then composite
+            const sorted = [...csvData].sort((a, b) => {
+                const order = { flower: 0, standard: 1, composite: 2 }
+                return (order[a.type] || 1) - (order[b.type] || 1)
+            })
+
+            for (let i = 0; i < sorted.length; i++) {
+                const row = sorted[i]
+                try {
+                    const insertData: any = {
+                        name: row.name,
+                        type: row.type,
+                        price: row.price,
+                        cost: row.cost || null,
+                        stock: row.type !== 'composite' ? row.stock : null,
+                        sku: row.sku || null,
+                        description: row.description || null,
+                        units_per_package: row.units_per_package || null,
+                        is_active: true,
+                    }
+
+                    if (row.type === 'flower') {
+                        insertData.flower_color_name = row.flower_color_name || null
+                        insertData.flower_color_hex = row.flower_color_hex || null
+                        insertData.care_days_water = row.care_days_water || null
+                        insertData.care_days_cut = row.care_days_cut || null
+                    }
+
+                    if (row.type === 'composite') {
+                        insertData.labor_cost = row.labor_cost || null
+                        // Resolve main_flower name to ID
+                        if (row.main_flower) {
+                            const mainFlowerId = productNameToId[row.main_flower.toLowerCase()]
+                            if (mainFlowerId) insertData.main_flower_id = mainFlowerId
+                        }
+                    }
+
+                    const { data: newProduct, error } = await (supabase.from('products') as any)
+                        .insert(insertData).select().single()
+
+                    if (error) {
+                        errors.push(`Fila ${i + 2}: ${row.name} - ${error.message}`)
+                        continue
+                    }
+
+                    // Register in lookup for future recipe references
+                    productNameToId[row.name.toLowerCase()] = newProduct.id
+
+                    // Save recipe for composite products
+                    if (row.type === 'composite' && row.recipe) {
+                        const recipeParts = row.recipe.split(',').map(r => r.trim())
+                        const recipeItems = recipeParts.map(part => {
+                            const [name, qty] = part.split(':').map(s => s.trim())
+                            const childId = productNameToId[name.toLowerCase()]
+                            return { parent_product_id: newProduct.id, child_product_id: childId, quantity: parseInt(qty) || 1 }
+                        }).filter(r => r.child_product_id)
+
+                        if (recipeItems.length > 0) {
+                            await (supabase.from('product_recipes') as any).insert(recipeItems)
+                        }
+                    }
+
+                    success++
+                } catch (err: any) {
+                    errors.push(`Fila ${i + 2}: ${row.name} - ${err.message || 'Error desconocido'}`)
+                }
+            }
+        } catch (err: any) {
+            errors.push(`Error general: ${err.message}`)
+        }
+
+        setResult({ success, errors })
+        setImporting(false)
+
+        if (success > 0) {
+            onImportComplete()
+        }
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setCsvData([]); setResult(null) } }}>
+            <DialogTrigger asChild>
+                <Button variant="outline">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Importar CSV
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <FileSpreadsheet className="h-5 w-5" />
+                        Importar Productos desde CSV
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-4 py-4">
+                    {/* Download template */}
+                    <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium">Plantilla CSV</p>
+                            <p className="text-xs text-muted-foreground">
+                                Descarga la plantilla con los campos correctos y ejemplos
+                            </p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={downloadTemplate}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Descargar Plantilla
+                        </Button>
+                    </div>
+
+                    {/* File Upload */}
+                    <div className="space-y-2">
+                        <Label>Archivo CSV</Label>
+                        <Input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".csv"
+                            onChange={handleFileUpload}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Campos: name, type (standard/flower/composite), price, cost, stock, sku, description,
+                            flower_color_name, flower_color_hex, care_days_water, care_days_cut,
+                            labor_cost, main_flower, recipe (nombre:cantidad,...), units_per_package
+                        </p>
+                    </div>
+
+                    {/* Preview */}
+                    {csvData.length > 0 && !result && (
+                        <div className="space-y-2">
+                            <Label>Vista previa ({csvData.length} productos)</Label>
+                            <ScrollArea className="h-48 rounded-md border">
+                                <div className="p-3 space-y-2">
+                                    {csvData.map((product, idx) => (
+                                        <div key={idx} className="flex items-center justify-between text-sm bg-background p-2 rounded border">
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="outline" className="text-xs capitalize">
+                                                    {product.type === 'flower' ? '🌸 Flor' : product.type === 'composite' ? '📦 Compuesto' : '📌 Estándar'}
+                                                </Badge>
+                                                <span className="font-medium">{product.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3 text-muted-foreground">
+                                                <span>S/ {product.price.toFixed(2)}</span>
+                                                {product.stock > 0 && <span>Stock: {product.stock}</span>}
+                                                {product.recipe && <span className="text-xs">📋 Con receta</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </div>
+                    )}
+
+                    {/* Results */}
+                    {result && (
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                                <Check className="h-5 w-5 text-green-600" />
+                                <span className="font-medium text-green-700">
+                                    {result.success} productos importados correctamente
+                                </span>
+                            </div>
+                            {result.errors.length > 0 && (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-md space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <AlertCircle className="h-5 w-5 text-red-600" />
+                                        <span className="font-medium text-red-700">{result.errors.length} errores</span>
+                                    </div>
+                                    <ScrollArea className="h-24">
+                                        {result.errors.map((err, idx) => (
+                                            <p key={idx} className="text-xs text-red-600">{err}</p>
+                                        ))}
+                                    </ScrollArea>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setOpen(false)}>
+                        {result ? 'Cerrar' : 'Cancelar'}
+                    </Button>
+                    {!result && (
+                        <Button onClick={handleImport} disabled={csvData.length === 0 || importing}>
+                            {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                            {importing ? 'Importando...' : `Importar ${csvData.length} productos`}
+                        </Button>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Calendar, Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone, Timer, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -35,8 +35,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { supabase } from '@/utils/supabase/client'
 import { Database } from '@/types/database.types'
-import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { formatLimaDateTime, getLimaDateParts, toLimaISO, getCountdown } from '@/lib/utils'
 
 type Order = Database['public']['Tables']['orders']['Row'] & {
     clients: { full_name: string } | null
@@ -56,6 +55,8 @@ type OrderWithPayment = Order & {
     balance: number
 }
 
+type GroupMode = 'none' | 'day' | 'urgency'
+
 export function ScheduledOrdersView() {
     const [orders, setOrders] = useState<OrderWithPayment[]>([])
     const [loading, setLoading] = useState(true)
@@ -64,11 +65,28 @@ export function ScheduledOrdersView() {
     const [orderToComplete, setOrderToComplete] = useState<string | null>(null)
     const [orderToDelete, setOrderToDelete] = useState<string | null>(null)
     const [searchPhone, setSearchPhone] = useState('')
+    const [groupMode, setGroupMode] = useState<GroupMode>('none')
+    const [tick, setTick] = useState(0)
+
+    // Edit state - ALL fields
     const [editingOrder, setEditingOrder] = useState<OrderWithPayment | null>(null)
     const [editDeliveryDate, setEditDeliveryDate] = useState('')
     const [editDeliveryTime, setEditDeliveryTime] = useState('')
     const [editDeliveryType, setEditDeliveryType] = useState<'delivery' | 'pickup'>('pickup')
+    const [editDeliveryAddress, setEditDeliveryAddress] = useState('')
+    const [editClientPhone, setEditClientPhone] = useState('')
+    const [editDedication, setEditDedication] = useState('')
+    const [editNotes, setEditNotes] = useState('')
+    const [editLabelColor, setEditLabelColor] = useState('#3b82f6')
+    const [editDeliveryFee, setEditDeliveryFee] = useState('0')
+    const [editAdvancePayment, setEditAdvancePayment] = useState('0')
     const [savingEdit, setSavingEdit] = useState(false)
+
+    // Refresh countdown every minute
+    useEffect(() => {
+        const interval = setInterval(() => setTick(t => t + 1), 60000)
+        return () => clearInterval(interval)
+    }, [])
 
     async function fetchScheduledOrders() {
         setLoading(true)
@@ -79,32 +97,20 @@ export function ScheduledOrdersView() {
             .order('delivery_date', { ascending: true })
 
         if (data) {
-            // Fetch advance payments for each order
             const ordersWithPayments = await Promise.all(
                 (data as Order[]).map(async (order) => {
-                    const { data: transactions, error: txError } = await (supabase
+                    const { data: transactions } = await (supabase
                         .from('transactions') as any)
                         .select('amount')
                         .eq('related_order_id', order.id)
                         .eq('type', 'income')
 
-                    if (txError) {
-                        console.error('Error fetching transactions for order', order.id, txError)
-                    }
-
-                    console.log(`Order ${order.id.slice(0, 8)} transactions:`, transactions)
-
                     const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
                     const balance = order.total_amount - advancePayment
 
-                    return {
-                        ...order,
-                        advance_payment: advancePayment,
-                        balance: balance
-                    }
+                    return { ...order, advance_payment: advancePayment, balance }
                 })
             )
-
             setOrders(ordersWithPayments)
         }
         setLoading(false)
@@ -116,134 +122,152 @@ export function ScheduledOrdersView() {
             .select('*, clients(full_name), order_items(quantity, unit_price, custom_item_name, products(name))')
             .eq('id', orderId)
             .single()
-
         if (data) setSelectedOrder(data as OrderWithItems)
     }
 
     async function handleCompleteOrder() {
         if (!orderToComplete) return
-
         const orderId = orderToComplete
         setProcessingId(orderId)
-        setOrderToComplete(null) // Close dialog immediately
-
+        setOrderToComplete(null)
         try {
-            // Find the order to get its balance
             const order = orders.find(o => o.id === orderId)
             if (!order) throw new Error('Order not found')
-
-            // 1. If there is a pending balance, record it as a transaction
             if (order.balance > 0) {
-                const { error: txError } = await (supabase
-                    .from('transactions') as any)
-                    .insert({
-                        description: `Saldo pedido #${order.ticket_number || order.id.slice(0, 8)}`,
-                        amount: order.balance,
-                        type: 'income',
-                        date: new Date().toISOString(),
-                        related_order_id: order.id
-                    })
-
-                if (txError) throw txError
+                await (supabase.from('transactions') as any).insert({
+                    description: `Saldo pedido #${order.ticket_number || order.id.slice(0, 8)}`,
+                    amount: order.balance, type: 'income',
+                    date: new Date().toISOString(), related_order_id: order.id
+                })
             }
-
-            // 2. Update order status
-            const { error } = await (supabase
-                .from('orders') as any)
-                .update({ status: 'delivered' })
-                .eq('id', orderId)
-
+            const { error } = await (supabase.from('orders') as any)
+                .update({ status: 'delivered' }).eq('id', orderId)
             if (error) throw error
-
             alert('Pedido completado y registrado en ventas diarias')
             await fetchScheduledOrders()
         } catch (error) {
             console.error('Error completing order:', error)
             alert('Error al completar el pedido')
-        } finally {
-            setProcessingId(null)
-        }
+        } finally { setProcessingId(null) }
     }
 
     async function handleCancelOrder() {
         if (!orderToDelete) return
-
         const orderId = orderToDelete
         setProcessingId(orderId)
-        setOrderToDelete(null) // Close dialog immediately
-
+        setOrderToDelete(null)
         try {
-            // 1. Delete order items
-            const { error: itemsError } = await (supabase
-                .from('order_items') as any)
-                .delete()
-                .eq('order_id', orderId)
-
-            if (itemsError) throw itemsError
-
-            // 2. Delete related transactions
-            const { error: txError } = await (supabase
-                .from('transactions') as any)
-                .delete()
-                .eq('related_order_id', orderId)
-
-            if (txError) throw txError
-
-            // 3. Delete the order
-            const { error } = await (supabase
-                .from('orders') as any)
-                .delete()
-                .eq('id', orderId)
-
+            await (supabase.from('order_items') as any).delete().eq('order_id', orderId)
+            await (supabase.from('transactions') as any).delete().eq('related_order_id', orderId)
+            const { error } = await (supabase.from('orders') as any).delete().eq('id', orderId)
             if (error) throw error
-
             alert('Pedido eliminado')
             await fetchScheduledOrders()
         } catch (error: any) {
             console.error('Error deleting order:', error)
             alert(`Error al eliminar el pedido: ${error.message || 'Error desconocido'}`)
-        } finally {
-            setProcessingId(null)
-        }
+        } finally { setProcessingId(null) }
     }
 
-    useEffect(() => {
-        fetchScheduledOrders()
-    }, [])
+    useEffect(() => { fetchScheduledOrders() }, [])
 
-    // Filtrar pedidos por teléfono
+    // Filter by phone
     const filteredOrders = orders.filter(order => {
         if (!searchPhone) return true
-        const phone = order.client_phone || ''
-        return phone.includes(searchPhone)
+        return (order.client_phone || '').includes(searchPhone)
     })
 
-    // Abrir modal de edición
+    // Group orders
+    const groupedOrders = useMemo(() => {
+        if (groupMode === 'none') return { 'Todos': filteredOrders }
+
+        if (groupMode === 'day') {
+            const groups: Record<string, OrderWithPayment[]> = {}
+            filteredOrders.forEach(order => {
+                const dateKey = new Date(order.delivery_date).toLocaleDateString('es-PE', {
+                    timeZone: 'America/Lima', weekday: 'long', day: 'numeric', month: 'long'
+                })
+                if (!groups[dateKey]) groups[dateKey] = []
+                groups[dateKey].push(order)
+            })
+            return groups
+        }
+
+        if (groupMode === 'urgency') {
+            const groups: Record<string, OrderWithPayment[]> = {
+                '🔴 Vencidos': [], '🟠 Hoy': [], '🟡 Mañana': [],
+                '🟢 Esta semana': [], '🔵 Más adelante': [],
+            }
+            filteredOrders.forEach(order => {
+                const cd = getCountdown(order.delivery_date)
+                if (cd.isPast) groups['🔴 Vencidos'].push(order)
+                else if (cd.days === 0) groups['🟠 Hoy'].push(order)
+                else if (cd.days <= 1) groups['🟡 Mañana'].push(order)
+                else if (cd.days <= 7) groups['🟢 Esta semana'].push(order)
+                else groups['🔵 Más adelante'].push(order)
+            })
+            Object.keys(groups).forEach(key => { if (groups[key].length === 0) delete groups[key] })
+            return groups
+        }
+
+        return { 'Todos': filteredOrders }
+    }, [filteredOrders, groupMode, tick])
+
+    // Open edit modal with ALL fields
     function openEditModal(order: OrderWithPayment) {
-        const date = new Date(order.delivery_date)
-        setEditDeliveryDate(format(date, 'yyyy-MM-dd'))
-        setEditDeliveryTime(format(date, 'HH:mm'))
-        setEditDeliveryType(order.delivery_type as 'delivery' | 'pickup')
+        const parts = getLimaDateParts(order.delivery_date)
+        setEditDeliveryDate(parts.date)
+        setEditDeliveryTime(parts.time)
+        setEditDeliveryType(order.delivery_type as 'delivery' | 'pickup' || 'pickup')
+        setEditDeliveryAddress(order.delivery_address || '')
+        setEditClientPhone(order.client_phone || '')
+        setEditDedication(order.dedication || '')
+        setEditNotes(order.notes || '')
+        setEditLabelColor(order.label_color || '#3b82f6')
+        setEditDeliveryFee(String(order.delivery_fee || 0))
+        setEditAdvancePayment(String(order.advance_payment || 0))
         setEditingOrder(order)
     }
 
-    // Guardar edición
+    // Save ALL edited fields
     async function saveOrderEdit() {
         if (!editingOrder) return
         setSavingEdit(true)
-
         try {
-            const newDeliveryDate = new Date(`${editDeliveryDate}T${editDeliveryTime}:00`)
-            
-            const { error } = await (supabase
-                .from('orders') as any)
+            const newDeliveryDate = toLimaISO(editDeliveryDate, editDeliveryTime)
+            const newDeliveryFee = editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0
+            const originalSubtotal = editingOrder.total_amount - (editingOrder.delivery_fee || 0)
+            const newTotal = originalSubtotal + newDeliveryFee
+
+            const { error } = await (supabase.from('orders') as any)
                 .update({
-                    delivery_date: newDeliveryDate.toISOString(),
-                    delivery_type: editDeliveryType
+                    delivery_date: newDeliveryDate,
+                    delivery_type: editDeliveryType,
+                    delivery_address: editDeliveryType === 'delivery' ? editDeliveryAddress : null,
+                    client_phone: editClientPhone || null,
+                    dedication: editDedication || null,
+                    notes: editNotes || null,
+                    label_color: editLabelColor,
+                    delivery_fee: newDeliveryFee,
+                    total_amount: newTotal,
                 })
                 .eq('id', editingOrder.id)
-
             if (error) throw error
+
+            // Handle advance payment changes
+            const currentAdvance = editingOrder.advance_payment
+            const newAdvance = parseFloat(editAdvancePayment || '0')
+            if (newAdvance !== currentAdvance) {
+                await (supabase.from('transactions') as any)
+                    .delete().eq('related_order_id', editingOrder.id).eq('type', 'income')
+                if (newAdvance > 0) {
+                    await (supabase.from('transactions') as any).insert({
+                        description: `Adelanto pedido #${editingOrder.ticket_number || editingOrder.id.slice(0, 8)}`,
+                        amount: newAdvance, type: 'income',
+                        date: new Date().toISOString(), related_order_id: editingOrder.id
+                    })
+                }
+            }
 
             alert('Pedido actualizado correctamente')
             setEditingOrder(null)
@@ -251,151 +275,154 @@ export function ScheduledOrdersView() {
         } catch (error) {
             console.error('Error updating order:', error)
             alert('Error al actualizar el pedido')
-        } finally {
-            setSavingEdit(false)
-        }
+        } finally { setSavingEdit(false) }
+    }
+
+    // Countdown badge
+    function CountdownBadge({ deliveryDate }: { deliveryDate: string }) {
+        const cd = getCountdown(deliveryDate)
+        let variant: 'destructive' | 'default' | 'secondary' | 'outline' = 'outline'
+        let className = ''
+        if (cd.isPast) { variant = 'destructive' }
+        else if (cd.days === 0) { className = 'bg-orange-100 text-orange-800 border-orange-300' }
+        else if (cd.days <= 1) { className = 'bg-yellow-100 text-yellow-800 border-yellow-300' }
+        else if (cd.days <= 3) { className = 'bg-blue-100 text-blue-800 border-blue-300' }
+
+        return (
+            <Badge variant={variant} className={`flex items-center gap-1 text-xs ${className}`}>
+                <Timer className="h-3 w-3" />
+                {cd.label}
+            </Badge>
+        )
+    }
+
+    function renderOrderRow(order: OrderWithPayment) {
+        return (
+            <TableRow key={order.id} style={{ borderLeft: order.label_color ? `4px solid ${order.label_color}` : undefined }}>
+                <TableCell>
+                    <div className="flex items-center gap-1 font-mono text-sm">
+                        <Ticket className="h-4 w-4" />
+                        {order.ticket_number || '-'}
+                    </div>
+                </TableCell>
+                <TableCell>
+                    <div className="flex flex-col gap-1">
+                        <span className="text-sm">{formatLimaDateTime(order.delivery_date)}</span>
+                        <CountdownBadge deliveryDate={order.delivery_date} />
+                    </div>
+                </TableCell>
+                <TableCell>{order.clients?.full_name || 'Sin cliente'}</TableCell>
+                <TableCell>
+                    {order.client_phone ? (
+                        <a href={`tel:${order.client_phone}`} className="flex items-center gap-1 text-blue-600 hover:underline">
+                            <Phone className="h-3 w-3" />{order.client_phone}
+                        </a>
+                    ) : '-'}
+                </TableCell>
+                <TableCell>
+                    <Badge variant="outline">{order.delivery_type === 'delivery' ? 'Entrega' : 'Recojo'}</Badge>
+                </TableCell>
+                <TableCell className="font-semibold">S/ {order.total_amount.toFixed(2)}</TableCell>
+                <TableCell>
+                    {order.advance_payment > 0 ? (
+                        <span className="text-green-600 font-medium">S/ {order.advance_payment.toFixed(2)}</span>
+                    ) : <span className="text-muted-foreground">-</span>}
+                </TableCell>
+                <TableCell>
+                    {order.balance > 0 ? (
+                        <span className="text-orange-600 font-semibold">S/ {order.balance.toFixed(2)}</span>
+                    ) : <span className="text-green-600 font-semibold">Pagado</span>}
+                </TableCell>
+                <TableCell>
+                    {order.notes && (
+                        <span title={order.notes} className="text-muted-foreground cursor-help">
+                            <StickyNote className="h-4 w-4" />
+                        </span>
+                    )}
+                </TableCell>
+                <TableCell>
+                    <div className="flex gap-1">
+                        <Button size="sm" variant="outline" onClick={() => fetchOrderDetails(order.id)} title="Ver detalles">Ver</Button>
+                        <Button size="sm" variant="outline" onClick={() => openEditModal(order)} title="Editar pedido">
+                            <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" onClick={() => setOrderToComplete(order.id)} disabled={!!processingId} title="Completar">
+                            {processingId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => setOrderToDelete(order.id)} disabled={!!processingId} title="Eliminar">
+                            {processingId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                        </Button>
+                    </div>
+                </TableCell>
+            </TableRow>
+        )
     }
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
                 <h2 className="text-2xl font-bold">Pedidos Agendados</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <div className="relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Buscar por teléfono..."
-                            value={searchPhone}
-                            onChange={(e) => setSearchPhone(e.target.value)}
-                            className="pl-8 w-48"
-                        />
+                        <Input placeholder="Buscar por teléfono..." value={searchPhone}
+                            onChange={(e) => setSearchPhone(e.target.value)} className="pl-8 w-48" />
                     </div>
-                    <Button onClick={fetchScheduledOrders} variant="outline" size="sm">
-                        Actualizar
-                    </Button>
+                    <Select value={groupMode} onValueChange={(v) => setGroupMode(v as GroupMode)}>
+                        <SelectTrigger className="w-40"><SelectValue placeholder="Agrupar" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">Sin agrupar</SelectItem>
+                            <SelectItem value="day">Por día</SelectItem>
+                            <SelectItem value="urgency">Por urgencia</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Button onClick={fetchScheduledOrders} variant="outline" size="sm">Actualizar</Button>
                 </div>
             </div>
 
-            <div className="rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Ticket</TableHead>
-                            <TableHead>Fecha/Hora</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Teléfono</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Total</TableHead>
-                            <TableHead>Adelanto</TableHead>
-                            <TableHead>Saldo</TableHead>
-                            <TableHead>Acciones</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {filteredOrders.map((order) => (
-                            <TableRow
-                                key={order.id}
-                                style={{
-                                    borderLeft: order.label_color ? `4px solid ${order.label_color}` : undefined
-                                }}
-                            >
-                                <TableCell>
-                                    <div className="flex items-center gap-1 font-mono text-sm">
-                                        <Ticket className="h-4 w-4" />
-                                        {order.ticket_number || '-'}
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    {format(new Date(order.delivery_date), 'dd/MM/yyyy HH:mm', { locale: es })}
-                                </TableCell>
-                                <TableCell>{order.clients?.full_name || 'Sin cliente'}</TableCell>
-                                <TableCell>
-                                    {order.client_phone ? (
-                                        <a href={`tel:${order.client_phone}`} className="flex items-center gap-1 text-blue-600 hover:underline">
-                                            <Phone className="h-3 w-3" />
-                                            {order.client_phone}
-                                        </a>
-                                    ) : '-'}
-                                </TableCell>
-                                <TableCell>
-                                    <Badge variant="outline">
-                                        {order.delivery_type === 'delivery' ? 'Entrega' : 'Recojo'}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell className="font-semibold">S/ {order.total_amount.toFixed(2)}</TableCell>
-                                <TableCell>
-                                    {order.advance_payment > 0 ? (
-                                        <span className="text-green-600 font-medium">S/ {order.advance_payment.toFixed(2)}</span>
-                                    ) : (
-                                        <span className="text-muted-foreground">-</span>
-                                    )}
-                                </TableCell>
-                                <TableCell>
-                                    {order.balance > 0 ? (
-                                        <span className="text-orange-600 font-semibold">S/ {order.balance.toFixed(2)}</span>
-                                    ) : (
-                                        <span className="text-green-600 font-semibold">Pagado</span>
-                                    )}
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex gap-1">
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => fetchOrderDetails(order.id)}
-                                            title="Ver detalles"
-                                        >
-                                            Ver
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => openEditModal(order)}
-                                            title="Editar fecha/hora"
-                                        >
-                                            <Edit className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            onClick={() => setOrderToComplete(order.id)}
-                                            disabled={!!processingId}
-                                            title="Completar Pedido"
-                                        >
-                                            {processingId === order.id ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <Check className="h-4 w-4" />
-                                            )}
-                                        </Button>
-
-                                        <Button
-                                            size="sm"
-                                            variant="destructive"
-                                            onClick={() => setOrderToDelete(order.id)}
-                                            disabled={!!processingId}
-                                            title="Cancelar Pedido"
-                                        >
-                                            {processingId === order.id ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <X className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                        {filteredOrders.length === 0 && (
-                            <TableRow>
-                                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                                    {searchPhone ? 'No se encontraron pedidos con ese teléfono' : 'No hay pedidos agendados pendientes'}
-                                </TableCell>
-                            </TableRow>
+            {loading ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+            ) : (
+                Object.entries(groupedOrders).map(([groupName, groupOrders]) => (
+                    <div key={groupName} className="space-y-2">
+                        {groupMode !== 'none' && (
+                            <h3 className="text-lg font-semibold text-muted-foreground border-b pb-1">
+                                {groupName} ({groupOrders.length})
+                            </h3>
                         )}
-                    </TableBody>
-                </Table>
-            </div>
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Ticket</TableHead>
+                                        <TableHead>Fecha / Cuenta regresiva</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead>Teléfono</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead>Total</TableHead>
+                                        <TableHead>Adelanto</TableHead>
+                                        <TableHead>Saldo</TableHead>
+                                        <TableHead>Nota</TableHead>
+                                        <TableHead>Acciones</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {groupOrders.map(renderOrderRow)}
+                                    {groupOrders.length === 0 && (
+                                        <TableRow>
+                                            <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                                                {searchPhone ? 'No se encontraron pedidos con ese teléfono' : 'No hay pedidos agendados pendientes'}
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
+                ))
+            )}
 
+            {/* Detail Dialog */}
             {selectedOrder && (
                 <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
                     <DialogContent className="max-w-2xl">
@@ -416,10 +443,8 @@ export function ScheduledOrdersView() {
                                     <p className="font-medium">{selectedOrder.client_phone || '-'}</p>
                                 </div>
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Fecha/Hora</p>
-                                    <p className="font-medium">
-                                        {format(new Date(selectedOrder.delivery_date), 'dd/MM/yyyy HH:mm', { locale: es })}
-                                    </p>
+                                    <p className="text-sm text-muted-foreground">Fecha/Hora (Lima)</p>
+                                    <p className="font-medium">{formatLimaDateTime(selectedOrder.delivery_date)}</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Tipo</p>
@@ -434,12 +459,9 @@ export function ScheduledOrdersView() {
                                     <p className="text-sm text-muted-foreground">Dirección</p>
                                     <p className="font-medium">{selectedOrder.delivery_address || '-'}</p>
                                     {selectedOrder.delivery_latitude && selectedOrder.delivery_longitude && (
-                                        <a
-                                            href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.delivery_latitude},${selectedOrder.delivery_longitude}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-1"
-                                        >
+                                        <a href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.delivery_latitude},${selectedOrder.delivery_longitude}`}
+                                            target="_blank" rel="noopener noreferrer"
+                                            className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-1">
                                             <MapPin className="h-3 w-3" /> Ver ubicación en Google Maps
                                         </a>
                                     )}
@@ -497,13 +519,12 @@ export function ScheduledOrdersView() {
                 </Dialog>
             )}
 
+            {/* Complete Alert */}
             <AlertDialog open={!!orderToComplete} onOpenChange={(open) => !open && setOrderToComplete(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>¿Completar Pedido?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Esto marcará el pedido como entregado y lo registrará en las ventas del día.
-                        </AlertDialogDescription>
+                        <AlertDialogDescription>Esto marcará el pedido como entregado y lo registrará en las ventas del día.</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancelar</AlertDialogCancel>
@@ -512,26 +533,23 @@ export function ScheduledOrdersView() {
                 </AlertDialogContent>
             </AlertDialog>
 
+            {/* Delete Alert */}
             <AlertDialog open={!!orderToDelete} onOpenChange={(open) => !open && setOrderToDelete(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>¿Eliminar Pedido?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Esta acción no se puede deshacer. Se eliminará el pedido y todos sus registros asociados.
-                        </AlertDialogDescription>
+                        <AlertDialogDescription>Esta acción no se puede deshacer. Se eliminará el pedido y todos sus registros asociados.</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleCancelOrder} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                            Eliminar
-                        </AlertDialogAction>
+                        <AlertDialogAction onClick={handleCancelOrder} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Eliminar</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Modal de Edición */}
+            {/* FULL EDIT Modal */}
             <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
-                <DialogContent>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Edit className="h-5 w-5" />
@@ -541,41 +559,80 @@ export function ScheduledOrdersView() {
                     <div className="space-y-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="edit-date">Fecha de Entrega</Label>
-                                <Input
-                                    id="edit-date"
-                                    type="date"
-                                    value={editDeliveryDate}
-                                    onChange={(e) => setEditDeliveryDate(e.target.value)}
-                                />
+                                <Label>Fecha de Entrega</Label>
+                                <Input type="date" value={editDeliveryDate} onChange={(e) => setEditDeliveryDate(e.target.value)} />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="edit-time">Hora de Entrega</Label>
-                                <Input
-                                    id="edit-time"
-                                    type="time"
-                                    value={editDeliveryTime}
-                                    onChange={(e) => setEditDeliveryTime(e.target.value)}
-                                />
+                                <Label>Hora de Entrega</Label>
+                                <Input type="time" value={editDeliveryTime} onChange={(e) => setEditDeliveryTime(e.target.value)} />
                             </div>
                         </div>
+
                         <div className="space-y-2">
-                            <Label htmlFor="edit-type">Tipo de Entrega</Label>
-                            <Select value={editDeliveryType} onValueChange={(v) => setEditDeliveryType(v as 'delivery' | 'pickup')}>
-                                <SelectTrigger id="edit-type">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="pickup">Recojo en tienda</SelectItem>
-                                    <SelectItem value="delivery">Delivery</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <Label>Tipo de Entrega</Label>
+                            <div className="flex gap-2">
+                                <Button type="button" variant={editDeliveryType === 'delivery' ? 'default' : 'outline'}
+                                    onClick={() => setEditDeliveryType('delivery')} className="flex-1">Entrega</Button>
+                                <Button type="button" variant={editDeliveryType === 'pickup' ? 'default' : 'outline'}
+                                    onClick={() => setEditDeliveryType('pickup')} className="flex-1">Recojo</Button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Número de Celular</Label>
+                            <Input value={editClientPhone} onChange={(e) => setEditClientPhone(e.target.value)} placeholder="999999999" />
+                        </div>
+
+                        {editDeliveryType === 'delivery' && (
+                            <div className="space-y-2">
+                                <Label>Dirección de Entrega</Label>
+                                <Input value={editDeliveryAddress} onChange={(e) => setEditDeliveryAddress(e.target.value)} placeholder="Dirección completa" />
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <Label>Dedicatoria</Label>
+                            <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={editDedication} onChange={(e) => setEditDedication(e.target.value)} placeholder="Mensaje para la tarjeta..." rows={3} />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Nota Interna</Label>
+                            <textarea className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notas internas..." rows={2} />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Color de Etiqueta</Label>
+                            <div className="flex gap-2 items-center">
+                                <input type="color" value={editLabelColor} onChange={(e) => setEditLabelColor(e.target.value)} className="h-10 w-20 rounded border cursor-pointer" />
+                                <span className="text-sm text-muted-foreground">Para identificar en el calendario</span>
+                            </div>
+                        </div>
+
+                        {editDeliveryType === 'delivery' && (
+                            <div className="space-y-2">
+                                <Label>Precio de Delivery (S/)</Label>
+                                <Input type="number" step="0.01" value={editDeliveryFee} onChange={(e) => setEditDeliveryFee(e.target.value)} placeholder="10.00" />
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <Label>Adelanto (S/)</Label>
+                            <Input type="number" value={editAdvancePayment} onChange={(e) => setEditAdvancePayment(e.target.value)} placeholder="0.00" />
+                            {parseFloat(editAdvancePayment || '0') > 0 && editingOrder && (
+                                <p className="text-xs text-muted-foreground">
+                                    Saldo pendiente: S/ {(
+                                        (editingOrder.total_amount - (editingOrder.delivery_fee || 0)) +
+                                        (editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0) -
+                                        parseFloat(editAdvancePayment || '0')
+                                    ).toFixed(2)}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditingOrder(null)}>
-                            Cancelar
-                        </Button>
+                        <Button variant="outline" onClick={() => setEditingOrder(null)}>Cancelar</Button>
                         <Button onClick={saveOrderEdit} disabled={savingEdit}>
                             {savingEdit ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                             Guardar Cambios

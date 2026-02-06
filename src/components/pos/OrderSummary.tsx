@@ -11,6 +11,7 @@ import { Database } from '@/types/database.types'
 import { supabase } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { getLimaDateParts, toLimaISO } from '@/lib/utils'
 import {
     Dialog,
     DialogContent,
@@ -49,7 +50,8 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
     const { profile } = useAuth()
     const [client, setClient] = useState<Client | null>(null)
     const [loading, setLoading] = useState(false)
-    const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0])
+    const limaParts = getLimaDateParts()
+    const [deliveryDate, setDeliveryDate] = useState(limaParts.date)
 
     const [scheduleOpen, setScheduleOpen] = useState(false)
     const [scheduleTime, setScheduleTime] = useState('09:00')
@@ -62,8 +64,24 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
     const [dedication, setDedication] = useState('')
     const [labelColor, setLabelColor] = useState('#3b82f6')
     const [deliveryFee, setDeliveryFee] = useState('10')
+    const [orderNotes, setOrderNotes] = useState('')
     const [showConfirmation, setShowConfirmation] = useState(false)
     const [confirmationMessage, setConfirmationMessage] = useState('')
+
+    // Load default delivery fee from settings
+    useEffect(() => {
+        async function loadDefaultDeliveryFee() {
+            const { data } = await supabase
+                .from('business_settings')
+                .select('value')
+                .eq('key', 'delivery_fee_default')
+                .single()
+            if (data?.value) {
+                setDeliveryFee(data.value)
+            }
+        }
+        loadDefaultDeliveryFee()
+    }, [])
 
     const subtotal = items.reduce((sum, item) => {
         const price = item.isCustom ? (item.customPrice || 0) : (item.product?.price || 0)
@@ -87,7 +105,7 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
 
         try {
             const finalDeliveryDate = isScheduled
-                ? `${deliveryDate}T${scheduleTime}:00`
+                ? toLimaISO(deliveryDate, scheduleTime)
                 : new Date().toISOString()
 
             const finalAddress = isScheduled ? deliveryAddress : (client?.address || 'Tienda')
@@ -142,6 +160,7 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
                     ticket_number: ticketNumber,
                     delivery_latitude: deliveryLocation?.lat || null,
                     delivery_longitude: deliveryLocation?.lng || null,
+                    notes: isScheduled && orderNotes ? orderNotes : null,
                     created_by: profile?.id || null,
                     created_by_name: profile?.full_name || profile?.email || null
                 })
@@ -242,7 +261,7 @@ HORA DE ENVÍO: ${scheduleTime}
 RAMO:
 ${itemsList}
 
-${dedication ? `DEDICATORIA: ${dedication}\n` : ''}TOTAL: S/ ${total.toFixed(2)}
+${dedication ? `DEDICATORIA: ${dedication}\n` : ''}${orderNotes ? `NOTA: ${orderNotes}\n` : ''}TOTAL: S/ ${total.toFixed(2)}
 ${deliveryType === 'delivery' ? `DELIVERY: S/ ${deliveryFeeAmount.toFixed(2)}\n` : ''}${advanceAmount > 0 ? `ADELANTO: S/ ${advanceAmount.toFixed(2)}\nSALDO: S/ ${balance.toFixed(2)}\n` : ''}
 ${deliveryType === 'delivery' ? `DIRECCIÓN: ${deliveryAddress}` : 'RECOJO EN TIENDA'}
 ${googleMapsLink ? `UBICACIÓN: ${googleMapsLink}` : ''}
@@ -269,6 +288,7 @@ ${clientPhone ? `\nCONTACTO: ${clientPhone}` : ''}`
                 setClientPhone('')
                 setClientName('')
                 setDedication('')
+                setOrderNotes('')
                 // Don't close scheduleOpen yet - let confirmation dialog handle it
             }
         } catch (error) {
@@ -466,6 +486,16 @@ ${clientPhone ? `\nCONTACTO: ${clientPhone}` : ''}`
                                             onChange={(e) => setDedication(e.target.value)}
                                             placeholder="Mensaje para la tarjeta..."
                                             rows={3}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Nota Interna</Label>
+                                        <textarea
+                                            className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            value={orderNotes}
+                                            onChange={(e) => setOrderNotes(e.target.value)}
+                                            placeholder="Notas internas del pedido..."
+                                            rows={2}
                                         />
                                     </div>
                                     <div className="space-y-2">
