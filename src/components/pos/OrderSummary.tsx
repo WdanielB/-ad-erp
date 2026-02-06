@@ -75,7 +75,8 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
                 .from('business_settings')
                 .select('value')
                 .eq('key', 'delivery_fee_default')
-                .single()
+                .maybeSingle()
+                .returns<{ value: string | null }>()
             if (data?.value) {
                 setDeliveryFee(data.value)
             }
