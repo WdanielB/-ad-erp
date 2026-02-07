@@ -107,6 +107,7 @@ export default function InventoryPage() {
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead>Imagen</TableHead>
                             <TableHead>Nombre</TableHead>
                             <TableHead>SKU</TableHead>
                             <TableHead>Tipo</TableHead>
@@ -119,6 +120,19 @@ export default function InventoryPage() {
                     <TableBody>
                         {products?.map((product) => (
                             <TableRow key={product.id}>
+                                <TableCell>
+                                    <div className="w-12 h-12 rounded-md overflow-hidden bg-muted flex items-center justify-center">
+                                        {product.image_url ? (
+                                            <img
+                                                src={product.image_url}
+                                                alt={product.name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">Sin imagen</span>
+                                        )}
+                                    </div>
+                                </TableCell>
                                 <TableCell className="font-medium">
                                     <div className="flex flex-col">
                                         <span>{product.name}</span>

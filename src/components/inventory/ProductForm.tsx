@@ -240,9 +240,9 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                    <div className="space-y-6 min-w-0">
                         <FormField
                             control={form.control}
                             name="type"
@@ -303,10 +303,35 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
                                 </FormItem>
                             )}
                         />
+
+                        <FormField control={form.control} name="image_url"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Imagen (URL)</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="https://..."
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    {field.value && (
+                                        <div className="mt-2 w-full max-w-sm aspect-[4/3] rounded-md overflow-hidden border bg-muted">
+                                            <img
+                                                src={field.value}
+                                                alt="Vista previa"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                    <FormDescription>Agrega un link de imagen para mostrarla en el catálogo.</FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
                     </div>
 
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-6 min-w-0">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <FormField control={form.control} name="price"
                                 render={({ field }) => (
                                     <FormItem>
@@ -345,7 +370,7 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
                         {productType === 'flower' && (
                             <div className="p-4 border rounded-md bg-muted/20 space-y-4">
                                 <h3 className="font-medium">Detalles de Flor</h3>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <FormField control={form.control} name="flower_color_name"
                                         render={({ field }) => (
                                             <FormItem>
@@ -368,7 +393,7 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
                                         )}
                                     />
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <FormField control={form.control} name="care_days_water"
                                         render={({ field }) => (
                                             <FormItem>

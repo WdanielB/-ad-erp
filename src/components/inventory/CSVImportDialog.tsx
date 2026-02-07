@@ -5,6 +5,14 @@ import { Upload, FileSpreadsheet, Loader2, Check, AlertCircle, Download } from '
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select'
 import {
     Dialog,
     DialogContent,
@@ -25,6 +33,7 @@ interface CSVProduct {
     stock: number
     sku: string
     description: string
+    image_url: string
     flower_color_name: string
     flower_color_hex: string
     care_days_water: number
@@ -49,21 +58,26 @@ export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
     const [csvData, setCsvData] = useState<CSVProduct[]>([])
     const [importing, setImporting] = useState(false)
     const [result, setResult] = useState<ImportResult | null>(null)
+    const [rawHeaders, setRawHeaders] = useState<string[]>([])
+    const [columnMapping, setColumnMapping] = useState<Record<string, keyof CSVProduct | ''>>({})
+    const [rawRows, setRawRows] = useState<string[][]>([])
+    const [encoding, setEncoding] = useState<'auto' | 'utf-8' | 'windows-1252'>('auto')
+    const [pasteFirstRowHeader, setPasteFirstRowHeader] = useState(true)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     function downloadTemplate() {
         const headers = [
-            'name', 'type', 'price', 'cost', 'stock', 'sku', 'description',
+            'name', 'type', 'price', 'cost', 'stock', 'sku', 'description', 'image_url',
             'flower_color_name', 'flower_color_hex', 'care_days_water', 'care_days_cut',
             'labor_cost', 'main_flower', 'recipe', 'units_per_package'
         ]
         const exampleRows = [
             ['Rosa Roja Importada', 'flower', '5', '2.5', '100', 'ROSA-ROJA', 'Rosa premium importada',
-                'Rojo', '#FF0000', '2', '3', '', '', '', '25'],
+                'https://ejemplo.com/rosa.jpg', 'Rojo', '#FF0000', '2', '3', '', '', '', '25'],
             ['Gypsophila', 'flower', '3', '1.5', '50', 'GYPS-01', 'Flor de relleno',
-                'Blanco', '#FFFFFF', '3', '4', '', '', '', '10'],
+                'https://ejemplo.com/gypsophila.jpg', 'Blanco', '#FFFFFF', '3', '4', '', '', '', '10'],
             ['Ramo Clásico 12 Rosas', 'composite', '120', '60', '', 'RAMO-12R', 'Ramo de 12 rosas rojas',
-                '', '', '', '', '15', 'Rosa Roja Importada', 'Rosa Roja Importada:12,Gypsophila:5', ''],
+                'https://ejemplo.com/ramo12.jpg', '', '', '', '', '15', 'Rosa Roja Importada', 'Rosa Roja Importada:12,Gypsophila:5', ''],
         ]
 
         const csvContent = [headers.join(','), ...exampleRows.map(r => r.join(','))].join('\n')
@@ -76,50 +90,101 @@ export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
         URL.revokeObjectURL(url)
     }
 
-    function parseCSV(text: string): CSVProduct[] {
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-        if (lines.length < 2) return []
+    function parseCSV(text: string) {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+        if (lines.length < 2) return { headers: [] as string[], rows: [] as string[][] }
 
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-        const products: CSVProduct[] = []
+        const headerLine = lines[0].replace(/^\uFEFF/, '')
+        const commaCount = (headerLine.match(/,/g) || []).length
+        const semiCount = (headerLine.match(/;/g) || []).length
+        const delimiter = semiCount > commaCount ? ';' : ','
+
+        const headers = headerLine.split(delimiter).map(h => h.trim())
+        const rows: string[][] = []
 
         for (let i = 1; i < lines.length; i++) {
-            // Handle quoted values with commas inside
             const values: string[] = []
             let current = ''
             let inQuotes = false
             for (const char of lines[i]) {
                 if (char === '"') { inQuotes = !inQuotes }
-                else if (char === ',' && !inQuotes) { values.push(current.trim()); current = '' }
+                else if (char === delimiter && !inQuotes) { values.push(current.trim()); current = '' }
                 else { current += char }
             }
             values.push(current.trim())
+            rows.push(values)
+        }
 
-            const product: any = {}
+        return { headers, rows }
+    }
+
+    function buildProducts(headers: string[], rows: string[][], mapping: Record<string, keyof CSVProduct | ''>) {
+        const products: CSVProduct[] = []
+        for (const row of rows) {
+            const raw: any = {}
             headers.forEach((header, idx) => {
-                product[header] = values[idx] || ''
+                raw[header] = row[idx] || ''
+            })
+
+            const mapped: any = {}
+            Object.entries(mapping).forEach(([header, field]) => {
+                if (!field) return
+                mapped[field] = raw[header] ?? ''
             })
 
             products.push({
-                name: product.name || '',
-                type: (['standard', 'flower', 'composite'].includes(product.type) ? product.type : 'standard') as any,
-                price: parseFloat(product.price) || 0,
-                cost: parseFloat(product.cost) || 0,
-                stock: parseInt(product.stock) || 0,
-                sku: product.sku || '',
-                description: product.description || '',
-                flower_color_name: product.flower_color_name || '',
-                flower_color_hex: product.flower_color_hex || '',
-                care_days_water: parseInt(product.care_days_water) || 2,
-                care_days_cut: parseInt(product.care_days_cut) || 3,
-                labor_cost: parseFloat(product.labor_cost) || 0,
-                main_flower: product.main_flower || '',
-                recipe: product.recipe || '',
-                units_per_package: parseInt(product.units_per_package) || 0,
+                name: mapped.name || '',
+                type: (['standard', 'flower', 'composite'].includes(mapped.type) ? mapped.type : 'standard') as any,
+                price: parseFloat(mapped.price) || 0,
+                cost: parseFloat(mapped.cost) || 0,
+                stock: parseInt(mapped.stock) || 0,
+                sku: mapped.sku || '',
+                description: mapped.description || '',
+                image_url: mapped.image_url || '',
+                flower_color_name: mapped.flower_color_name || '',
+                flower_color_hex: mapped.flower_color_hex || '',
+                care_days_water: parseInt(mapped.care_days_water) || 2,
+                care_days_cut: parseInt(mapped.care_days_cut) || 3,
+                labor_cost: parseFloat(mapped.labor_cost) || 0,
+                main_flower: mapped.main_flower || '',
+                recipe: mapped.recipe || '',
+                units_per_package: parseInt(mapped.units_per_package) || 0,
             })
         }
-
         return products.filter(p => p.name)
+    }
+
+    const csvColumns: Array<keyof CSVProduct> = [
+        'name', 'type', 'price', 'cost', 'stock', 'sku', 'description', 'image_url',
+        'flower_color_name', 'flower_color_hex', 'care_days_water', 'care_days_cut',
+        'labor_cost', 'main_flower', 'recipe', 'units_per_package'
+    ]
+
+    function buildMapping(headers: string[]) {
+        const initialMapping: Record<string, keyof CSVProduct | ''> = {}
+        headers.forEach(h => {
+            const normalized = h.trim().toLowerCase()
+            const match = csvColumns.find(c => c.toLowerCase() === normalized)
+            initialMapping[h] = match || ''
+        })
+        return initialMapping
+    }
+
+    function updateCsvCell(index: number, field: keyof CSVProduct, value: string) {
+        const numberFields: Array<keyof CSVProduct> = [
+            'price', 'cost', 'stock', 'care_days_water', 'care_days_cut', 'labor_cost', 'units_per_package'
+        ]
+
+        setCsvData(prev => prev.map((row, i) => {
+            if (i !== index) return row
+            if (numberFields.includes(field)) {
+                const parsed = field === 'stock' || field === 'care_days_water' || field === 'care_days_cut' || field === 'units_per_package'
+                    ? parseInt(value) || 0
+                    : parseFloat(value) || 0
+                return { ...row, [field]: parsed } as CSVProduct
+            }
+            return { ...row, [field]: value } as CSVProduct
+        }))
     }
 
     function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -128,12 +193,68 @@ export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
 
         const reader = new FileReader()
         reader.onload = (event) => {
-            const text = event.target?.result as string
+            const buffer = event.target?.result as ArrayBuffer
+            const decodeWith = (enc: 'utf-8' | 'windows-1252') => new TextDecoder(enc).decode(buffer)
+
+            let text = ''
+            if (encoding === 'utf-8') {
+                text = decodeWith('utf-8')
+            } else if (encoding === 'windows-1252') {
+                text = decodeWith('windows-1252')
+            } else {
+                const utf8 = decodeWith('utf-8')
+                text = utf8.includes('�') ? decodeWith('windows-1252') : utf8
+            }
+
             const parsed = parseCSV(text)
-            setCsvData(parsed)
+            setRawHeaders(parsed.headers)
+            setRawRows(parsed.rows)
+            const initialMapping = buildMapping(parsed.headers)
+            setColumnMapping(initialMapping)
+
+            setCsvData(buildProducts(parsed.headers, parsed.rows, initialMapping))
             setResult(null)
         }
-        reader.readAsText(file, 'UTF-8')
+        reader.readAsArrayBuffer(file)
+    }
+
+    function parsePastedTable(text: string) {
+        const lines = text.split(/\r?\n/).filter(l => l.length > 0)
+        const rows = lines.map(line => line.split('\t'))
+        if (rows.length === 0) return { headers: [] as string[], rows: [] as string[][] }
+
+        if (pasteFirstRowHeader) {
+            const headers = rows[0].map(h => h.trim())
+            return { headers, rows: rows.slice(1) }
+        }
+
+        const maxCols = Math.max(...rows.map(r => r.length))
+        const headers = Array.from({ length: maxCols }, (_, i) => `col_${i + 1}`)
+        return { headers, rows }
+    }
+
+    function handlePasteTable(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+        e.preventDefault()
+        const text = e.clipboardData.getData('text')
+        if (!text) return
+
+        const parsed = parsePastedTable(text)
+        setRawHeaders(parsed.headers)
+        setRawRows(parsed.rows)
+
+        const initialMapping = buildMapping(parsed.headers)
+        setColumnMapping(initialMapping)
+
+        setCsvData(buildProducts(parsed.headers, parsed.rows, initialMapping))
+        setResult(null)
+    }
+
+    function handleMappingChange(header: string, field: keyof CSVProduct | '') {
+        const next = { ...columnMapping, [header]: field }
+        setColumnMapping(next)
+        if (rawHeaders.length > 0) {
+            setCsvData(buildProducts(rawHeaders, rawRows, next))
+        }
     }
 
     async function handleImport() {
@@ -171,6 +292,7 @@ export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
                         stock: row.type !== 'composite' ? row.stock : null,
                         sku: row.sku || null,
                         description: row.description || null,
+                        image_url: row.image_url || null,
                         units_per_package: row.units_per_package || null,
                         is_active: true,
                     }
@@ -267,42 +389,119 @@ export function CSVImportDialog({ onImportComplete }: CSVImportDialogProps) {
                     {/* File Upload */}
                     <div className="space-y-2">
                         <Label>Archivo CSV</Label>
-                        <Input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".csv"
-                            onChange={handleFileUpload}
-                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".csv"
+                                onChange={handleFileUpload}
+                            />
+                            <Select value={encoding} onValueChange={(v) => setEncoding(v as any)}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Codificación" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="auto">Auto (recomendado)</SelectItem>
+                                    <SelectItem value="utf-8">UTF-8</SelectItem>
+                                    <SelectItem value="windows-1252">Windows-1252</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                            Campos: name, type (standard/flower/composite), price, cost, stock, sku, description,
+                            Campos: name, type (standard/flower/composite), price, cost, stock, sku, description, image_url,
                             flower_color_name, flower_color_hex, care_days_water, care_days_cut,
                             labor_cost, main_flower, recipe (nombre:cantidad,...), units_per_package
                         </p>
                     </div>
 
-                    {/* Preview */}
-                    {csvData.length > 0 && !result && (
+                    {/* Paste from Excel */}
+                    <div className="space-y-2">
+                        <Label>Pegar desde Excel</Label>
+                        <Textarea
+                            placeholder="Pega aquí (Ctrl+V) el rango de Excel..."
+                            onPaste={handlePasteTable}
+                            className="min-h-24"
+                        />
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Input
+                                id="paste-first-row"
+                                type="checkbox"
+                                checked={pasteFirstRowHeader}
+                                onChange={(e) => setPasteFirstRowHeader(e.target.checked)}
+                                className="h-4 w-4"
+                            />
+                            <Label htmlFor="paste-first-row" className="text-xs">
+                                La primera fila es encabezado
+                            </Label>
+                        </div>
+                    </div>
+
+                    {/* Column Mapping */}
+                    {rawHeaders.length > 0 && !result && (
                         <div className="space-y-2">
-                            <Label>Vista previa ({csvData.length} productos)</Label>
-                            <ScrollArea className="h-48 rounded-md border">
-                                <div className="p-3 space-y-2">
-                                    {csvData.map((product, idx) => (
-                                        <div key={idx} className="flex items-center justify-between text-sm bg-background p-2 rounded border">
-                                            <div className="flex items-center gap-2">
-                                                <Badge variant="outline" className="text-xs capitalize">
-                                                    {product.type === 'flower' ? '🌸 Flor' : product.type === 'composite' ? '📦 Compuesto' : '📌 Estándar'}
-                                                </Badge>
-                                                <span className="font-medium">{product.name}</span>
+                            <Label>Reubicar columnas</Label>
+                            <div className="rounded-md border">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3">
+                                    {rawHeaders.map((header) => (
+                                        <div key={header} className="flex items-center gap-2">
+                                            <div className="text-xs text-muted-foreground w-40 truncate" title={header}>
+                                                {header}
                                             </div>
-                                            <div className="flex items-center gap-3 text-muted-foreground">
-                                                <span>S/ {product.price.toFixed(2)}</span>
-                                                {product.stock > 0 && <span>Stock: {product.stock}</span>}
-                                                {product.recipe && <span className="text-xs">📋 Con receta</span>}
-                                            </div>
+                                            <Select
+                                                value={columnMapping[header] || '__none__'}
+                                                onValueChange={(value) => handleMappingChange(header, value === '__none__' ? '' : (value as keyof CSVProduct))}
+                                            >
+                                                <SelectTrigger className="h-8">
+                                                    <SelectValue placeholder="Sin asignar" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="__none__">Sin asignar</SelectItem>
+                                                    {csvColumns.map((col) => (
+                                                        <SelectItem key={col} value={col}>
+                                                            {col}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                     ))}
                                 </div>
-                            </ScrollArea>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Asigna cada columna del CSV al campo correcto.</p>
+                        </div>
+                    )}
+
+                    {/* Preview */}
+                    {csvData.length > 0 && !result && (
+                        <div className="space-y-2">
+                            <Label>Vista previa editable ({csvData.length} productos)</Label>
+                            <div className="rounded-md border overflow-hidden">
+                                <ScrollArea className="h-64">
+                                    <div className="min-w-[1400px]">
+                                        <div className="grid" style={{ gridTemplateColumns: `repeat(${csvColumns.length}, minmax(140px, 1fr))` }}>
+                                            {csvColumns.map((col) => (
+                                                <div key={col} className="px-2 py-2 text-xs font-medium text-muted-foreground border-b bg-muted/40">
+                                                    {col}
+                                                </div>
+                                            ))}
+                                            {csvData.map((row, idx) => (
+                                                <>
+                                                    {csvColumns.map((col) => (
+                                                        <div key={`${idx}-${col}`} className="px-2 py-1 border-b">
+                                                            <Input
+                                                                value={(row[col] ?? '') as any}
+                                                                onChange={(e) => updateCsvCell(idx, col, e.target.value)}
+                                                                className="h-8 text-xs"
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </ScrollArea>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Edita cualquier celda antes de importar.</p>
                         </div>
                     )}
 
