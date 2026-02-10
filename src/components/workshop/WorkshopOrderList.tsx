@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Check, Clock, Package, Truck, MapPin, Calendar, Phone } from 'lucide-react'
+import { Check, ChevronDown, Clock, Package, Truck, MapPin, Calendar, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +34,7 @@ interface FlowerCountItem {
     colorName: string | null
     colorHex: string | null
     totalQuantity: number
+    sources: Array<{ ticket: string; bouquetName: string; qty: number }>
 }
 
 export function WorkshopOrderList() {
@@ -78,9 +79,13 @@ export function WorkshopOrderList() {
             return
         }
 
+        // Build order ticket map
+        const orderTicketMap = new Map<string, string>()
+        activeOrders.forEach(o => orderTicketMap.set(o.id, o.ticket_number || o.id.slice(0, 6)))
+
         const { data: orderItems } = await (supabase
             .from('order_items') as any)
-            .select('id, order_id, quantity, is_custom, product_id')
+            .select('id, order_id, quantity, is_custom, product_id, custom_item_name, products(name)')
             .in('order_id', orderIds)
 
         const items = orderItems || []
@@ -89,9 +94,17 @@ export function WorkshopOrderList() {
             return
         }
 
-        const orderItemMap = new Map<string, { quantity: number; isCustom: boolean }>()
+        const orderItemMap = new Map<string, { quantity: number; isCustom: boolean; orderId: string; bouquetName: string }>()
         items.forEach((item: any) => {
-            orderItemMap.set(item.id, { quantity: item.quantity || 1, isCustom: !!item.is_custom })
+            const bouquetName = item.is_custom
+                ? (item.custom_item_name ? `Personalizado (${item.custom_item_name})` : 'Ramo Personalizado')
+                : (item.products?.name || 'Producto')
+            orderItemMap.set(item.id, {
+                quantity: item.quantity || 1,
+                isCustom: !!item.is_custom,
+                orderId: item.order_id,
+                bouquetName
+            })
         })
 
         const customItemIds = items.filter((i: any) => i.is_custom).map((i: any) => i.id)
@@ -171,75 +184,47 @@ export function WorkshopOrderList() {
 
         const counts = new Map<string, FlowerCountItem>()
 
-        ;(customFlowers || []).forEach((row: any) => {
-            const orderItem = orderItemMap.get(row.order_item_id)
-            if (!orderItem) return
-            const total = (row.quantity || 0) * orderItem.quantity
-            const key = `${row.product_id || 'unknown'}:${row.color_id || 'none'}`
+        function addCount(key: string, productId: string | null, productName: string, colorId: string | null, colorName: string | null, colorHex: string | null, qty: number, ticket: string, bouquetName: string) {
             const existing = counts.get(key)
-            const productName = row.products?.name || 'Producto'
-            const colorName = row.flower_colors?.name || null
-            const colorHex = row.flower_colors?.hex || null
-
             if (existing) {
-                existing.totalQuantity += total
+                existing.totalQuantity += qty
+                const src = existing.sources.find(s => s.ticket === ticket && s.bouquetName === bouquetName)
+                if (src) src.qty += qty
+                else existing.sources.push({ ticket, bouquetName, qty })
             } else {
                 counts.set(key, {
-                    productId: row.product_id || null,
-                    productName,
-                    colorId: row.color_id || null,
-                    colorName,
-                    colorHex,
-                    totalQuantity: total
+                    productId, productName, colorId, colorName, colorHex,
+                    totalQuantity: qty,
+                    sources: [{ ticket, bouquetName, qty }]
                 })
             }
+        }
+
+        ;(customFlowers || []).forEach((row: any) => {
+            const oi = orderItemMap.get(row.order_item_id)
+            if (!oi) return
+            const total = (row.quantity || 0) * oi.quantity
+            const key = `${row.product_id || 'unknown'}:${row.color_id || 'none'}`
+            const ticket = orderTicketMap.get(oi.orderId) || '?'
+            addCount(key, row.product_id || null, row.products?.name || 'Producto', row.color_id || null, row.flower_colors?.name || null, row.flower_colors?.hex || null, total, ticket, oi.bouquetName)
         })
 
         ;(orderItemRecipes || []).forEach((row: any) => {
-            const orderItem = orderItemMap.get(row.order_item_id)
-            if (!orderItem) return
+            const oi = orderItemMap.get(row.order_item_id)
+            if (!oi) return
             const colorRows = colorByRecipeId[row.id] || []
+            const ticket = orderTicketMap.get(oi.orderId) || '?'
 
             if (colorRows.length > 0) {
                 colorRows.forEach((colorRow: any) => {
-                    const total = (colorRow.quantity || 0) * orderItem.quantity
+                    const total = (colorRow.quantity || 0) * oi.quantity
                     const key = `${row.product_id || 'unknown'}:${colorRow.color_id || 'none'}`
-                    const existing = counts.get(key)
-                    const productName = row.products?.name || 'Producto'
-                    const colorName = colorRow.flower_colors?.name || null
-                    const colorHex = colorRow.flower_colors?.hex || null
-
-                    if (existing) {
-                        existing.totalQuantity += total
-                    } else {
-                        counts.set(key, {
-                            productId: row.product_id || null,
-                            productName,
-                            colorId: colorRow.color_id || null,
-                            colorName,
-                            colorHex,
-                            totalQuantity: total
-                        })
-                    }
+                    addCount(key, row.product_id || null, row.products?.name || 'Producto', colorRow.color_id || null, colorRow.flower_colors?.name || null, colorRow.flower_colors?.hex || null, total, ticket, oi.bouquetName)
                 })
             } else {
-                const total = (row.quantity || 0) * orderItem.quantity
+                const total = (row.quantity || 0) * oi.quantity
                 const key = `${row.product_id || 'unknown'}:none`
-                const existing = counts.get(key)
-                const productName = row.products?.name || 'Producto'
-
-                if (existing) {
-                    existing.totalQuantity += total
-                } else {
-                    counts.set(key, {
-                        productId: row.product_id || null,
-                        productName,
-                        colorId: null,
-                        colorName: null,
-                        colorHex: null,
-                        totalQuantity: total
-                    })
-                }
+                addCount(key, row.product_id || null, row.products?.name || 'Producto', null, null, null, total, ticket, oi.bouquetName)
             }
         })
 
@@ -251,52 +236,23 @@ export function WorkshopOrderList() {
         })
 
         missingRecipeItems.forEach((item: any) => {
-            const orderItem = orderItemMap.get(item.id)
-            if (!orderItem || !item.product_id) return
+            const oi = orderItemMap.get(item.id)
+            if (!oi || !item.product_id) return
             const recipeRows = fallbackByParent[item.product_id] || []
+            const ticket = orderTicketMap.get(oi.orderId) || '?'
 
             recipeRows.forEach((row: any) => {
                 const colorRows = fallbackColorsByRecipeId[row.id] || []
                 if (colorRows.length > 0) {
                     colorRows.forEach((colorRow: any) => {
-                        const total = (colorRow.quantity || 0) * orderItem.quantity
+                        const total = (colorRow.quantity || 0) * oi.quantity
                         const key = `${row.child_product_id || 'unknown'}:${colorRow.color_id || 'none'}`
-                        const existing = counts.get(key)
-                        const productName = fallbackProductNameById[row.child_product_id] || 'Producto'
-                        const colorName = colorRow.flower_colors?.name || null
-                        const colorHex = colorRow.flower_colors?.hex || null
-
-                        if (existing) {
-                            existing.totalQuantity += total
-                        } else {
-                            counts.set(key, {
-                                productId: row.child_product_id || null,
-                                productName,
-                                colorId: colorRow.color_id || null,
-                                colorName,
-                                colorHex,
-                                totalQuantity: total
-                            })
-                        }
+                        addCount(key, row.child_product_id || null, fallbackProductNameById[row.child_product_id] || 'Producto', colorRow.color_id || null, colorRow.flower_colors?.name || null, colorRow.flower_colors?.hex || null, total, ticket, oi.bouquetName)
                     })
                 } else {
-                    const total = (row.quantity || 0) * orderItem.quantity
+                    const total = (row.quantity || 0) * oi.quantity
                     const key = `${row.child_product_id || 'unknown'}:none`
-                    const existing = counts.get(key)
-                    const productName = fallbackProductNameById[row.child_product_id] || 'Producto'
-
-                    if (existing) {
-                        existing.totalQuantity += total
-                    } else {
-                        counts.set(key, {
-                            productId: row.child_product_id || null,
-                            productName,
-                            colorId: null,
-                            colorName: null,
-                            colorHex: null,
-                            totalQuantity: total
-                        })
-                    }
+                    addCount(key, row.child_product_id || null, fallbackProductNameById[row.child_product_id] || 'Producto', null, null, null, total, ticket, oi.bouquetName)
                 }
             })
         })
@@ -446,17 +402,32 @@ export function WorkshopOrderList() {
                 ) : (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {flowerCounts.map(item => (
-                            <div key={`${item.productId}-${item.colorId}`} className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    {item.colorHex && (
-                                        <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: item.colorHex }} />
-                                    )}
-                                    <span className="truncate">
-                                        {item.productName}{item.colorName ? ` - ${item.colorName}` : ''}
-                                    </span>
-                                </div>
-                                <span className="font-semibold">{item.totalQuantity} tallos</span>
-                            </div>
+                            <details key={`${item.productId}-${item.colorId}`} className="rounded-md border bg-background text-sm group">
+                                <summary className="flex items-center justify-between px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        {item.colorHex && (
+                                            <span className="w-3 h-3 rounded-full border flex-shrink-0" style={{ backgroundColor: item.colorHex }} />
+                                        )}
+                                        <span className="truncate">
+                                            {item.productName}{item.colorName ? ` - ${item.colorName}` : ''}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                                        <span className="font-semibold">{item.totalQuantity} tallos</span>
+                                        <ChevronDown className="h-3 w-3 text-muted-foreground transition-transform group-open:rotate-180" />
+                                    </div>
+                                </summary>
+                                {item.sources && item.sources.length > 0 && (
+                                    <div className="px-3 pb-2 pt-1 border-t space-y-0.5">
+                                        {item.sources.map((s, i) => (
+                                            <div key={i} className="flex items-center justify-between text-xs text-muted-foreground">
+                                                <span className="truncate">🎫 {s.ticket} — {s.bouquetName}</span>
+                                                <span className="font-medium ml-2 flex-shrink-0">{s.qty}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </details>
                         ))}
                     </div>
                 )}

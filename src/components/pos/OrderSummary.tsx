@@ -476,12 +476,12 @@ ${clientPhone ? `\nContacto: ${clientPhone}` : ''}`
                                     Agendar
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <DialogContent className="w-[95vw] max-w-3xl max-h-[95vh] overflow-y-auto">
                                 <DialogHeader>
                                     <DialogTitle>Agendar Pedido</DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-4 py-4">
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <Label>Fecha Entrega</Label>
                                             <Input

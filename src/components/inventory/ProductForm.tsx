@@ -272,21 +272,56 @@ export function ProductForm({ productToEdit, onSuccess }: ProductFormProps) {
     async function handleCreateColor() {
         const trimmedName = newColorName.trim()
         const trimmedHex = newColorHex.trim()
-        if (!trimmedName || !trimmedHex) return
-
-        const { data, error } = await (supabase.from('flower_colors') as any)
-            .insert({ name: trimmedName, hex: trimmedHex })
-            .select()
-            .single()
-
-        if (error || !data) {
-            console.error('Error creating color:', error)
+        if (!trimmedName || !trimmedHex) {
+            alert('Escribe un nombre y selecciona un color')
             return
         }
 
-        setAvailableColors(prev => [...prev, data as FlowerColor].sort((a, b) => a.name.localeCompare(b.name)))
-        setSelectedColorIds(prev => Array.from(new Set([...prev, data.id])))
-        setNewColorName('')
+        try {
+            // Check if already loaded locally
+            const normalizedName = trimmedName.toLowerCase()
+            const existingLocal = availableColors.find(c => c.name.toLowerCase() === normalizedName)
+            if (existingLocal) {
+                setSelectedColorIds(prev => Array.from(new Set([...prev, existingLocal.id])))
+                setNewColorName('')
+                return
+            }
+
+            // Try insert (ignore error — unique constraint may fire if already exists)
+            const { error: insertError } = await supabase
+                .from('flower_colors')
+                .insert({ name: trimmedName, hex: trimmedHex } as any)
+
+            if (insertError) {
+                console.warn('Insert color warning:', insertError.message)
+            }
+
+            // Always re-fetch to get the actual row
+            const { data: fetched, error: fetchError } = await supabase
+                .from('flower_colors')
+                .select('*')
+                .ilike('name', trimmedName)
+                .limit(1)
+                .single()
+
+            if (fetchError || !fetched) {
+                console.warn('Fetch color error:', fetchError?.message)
+                alert('No se pudo crear el color. Error: ' + (fetchError?.message || 'No data returned'))
+                return
+            }
+
+            const color = fetched as FlowerColor
+            setAvailableColors(prev => {
+                const exists = prev.find(c => c.id === color.id)
+                if (exists) return prev
+                return [...prev, color].sort((a, b) => a.name.localeCompare(b.name))
+            })
+            setSelectedColorIds(prev => Array.from(new Set([...prev, color.id])))
+            setNewColorName('')
+        } catch (err: any) {
+            console.warn('handleCreateColor exception:', err)
+            alert('Error inesperado al crear color: ' + (err?.message || String(err)))
+        }
     }
 
     function addDefaultColor(colorId: string) {

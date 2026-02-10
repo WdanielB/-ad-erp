@@ -59,6 +59,7 @@ type OrderWithItems = Order & {
 type OrderWithPayment = Order & {
     advance_payment: number
     balance: number
+    item_names: string[]
 }
 
 interface RecipeColorItem {
@@ -109,6 +110,15 @@ export function ScheduledOrdersView() {
     const [newRecipeProductId, setNewRecipeProductId] = useState('')
     const [newRecipeQuantity, setNewRecipeQuantity] = useState(1)
 
+    // Inline recipe editor inside edit modal
+    const [editOrderItems, setEditOrderItems] = useState<OrderWithItems['order_items']>([])
+    const [editActiveRecipeItemId, setEditActiveRecipeItemId] = useState<string | null>(null)
+    const [editRecipesByItemId, setEditRecipesByItemId] = useState<Record<string, RecipeLine[]>>({})
+    const [editRecipeLoading, setEditRecipeLoading] = useState(false)
+    const [editNewRecipeProductId, setEditNewRecipeProductId] = useState('')
+    const [editNewRecipeQuantity, setEditNewRecipeQuantity] = useState(1)
+    const [editRecipeDirtyItems, setEditRecipeDirtyItems] = useState<Set<string>>(new Set())
+
     // Refresh countdown every minute
     useEffect(() => {
         const interval = setInterval(() => setTick(t => t + 1), 60000)
@@ -126,13 +136,13 @@ export function ScheduledOrdersView() {
         setLoading(true)
         const { data } = await supabase
             .from('orders')
-            .select('*, clients(full_name)')
+            .select('*, clients(full_name), order_items(quantity, custom_item_name, is_custom, product_id, products(name, type))')
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
         if (data) {
             const ordersWithPayments = await Promise.all(
-                (data as Order[]).map(async (order) => {
+                (data as any[]).map(async (order) => {
                     const { data: transactions } = await (supabase
                         .from('transactions') as any)
                         .select('amount')
@@ -142,7 +152,13 @@ export function ScheduledOrdersView() {
                     const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
                     const balance = order.total_amount - advancePayment
 
-                    return { ...order, advance_payment: advancePayment, balance }
+                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                        if (oi.is_custom) return '🌸 Ramo Personalizado'
+                        return oi.products?.name || 'Producto'
+                    })
+
+                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
                 })
             )
             setOrders(ordersWithPayments)
@@ -534,8 +550,8 @@ export function ScheduledOrdersView() {
         return { 'Todos': filteredOrders }
     }, [filteredOrders, groupMode, tick])
 
-    // Open edit modal with ALL fields
-    function openEditModal(order: OrderWithPayment) {
+    // Open edit modal with ALL fields + load items & catalog
+    async function openEditModal(order: OrderWithPayment) {
         const parts = getLimaDateParts(order.delivery_date)
         setEditDeliveryDate(parts.date)
         setEditDeliveryTime(parts.time)
@@ -547,7 +563,245 @@ export function ScheduledOrdersView() {
         setEditLabelColor(order.label_color || '#3b82f6')
         setEditDeliveryFee(String(order.delivery_fee || 0))
         setEditAdvancePayment(String(order.advance_payment || 0))
+        setEditActiveRecipeItemId(null)
+        setEditRecipesByItemId({})
+        setEditRecipeDirtyItems(new Set())
+        setEditNewRecipeProductId('')
+        setEditNewRecipeQuantity(1)
         setEditingOrder(order)
+
+        // Fetch order items
+        const { data } = await supabase
+            .from('orders')
+            .select('*, clients(full_name), order_items(id, quantity, unit_price, custom_item_name, is_custom, product_id, products(name, type))')
+            .eq('id', order.id)
+            .single()
+
+        if (data) {
+            const orderData = data as OrderWithItems
+            setEditOrderItems(orderData.order_items || [])
+        }
+
+        // Load catalog for recipe editing
+        await loadRecipeCatalog()
+    }
+
+    async function loadEditRecipeForItem(item: OrderWithItems['order_items'][number]) {
+        setEditRecipeLoading(true)
+        let lines: RecipeLine[] = []
+
+        if (item.is_custom) {
+            const { data: customRows } = await (supabase
+                .from('custom_item_flowers') as any)
+                .select('product_id, color_id, quantity')
+                .eq('order_item_id', item.id)
+
+            const grouped: Record<string, RecipeLine> = {}
+            ;(customRows || []).forEach((row: any) => {
+                if (!row.product_id) return
+                if (!grouped[row.product_id]) {
+                    grouped[row.product_id] = { productId: row.product_id, quantity: 1, colorItems: [] }
+                }
+                if (row.color_id) {
+                    grouped[row.product_id].colorItems.push({ colorId: row.color_id, quantity: row.quantity || 1 })
+                }
+            })
+            lines = Object.values(grouped)
+        } else {
+            const { data: orderItemRecipes } = await (supabase
+                .from('order_item_recipes') as any)
+                .select('id, product_id, quantity')
+                .eq('order_item_id', item.id)
+
+            if (orderItemRecipes && orderItemRecipes.length > 0) {
+                const recipeIds = orderItemRecipes.map((r: any) => r.id)
+                const { data: recipeColors } = await (supabase
+                    .from('order_item_recipe_flower_colors') as any)
+                    .select('order_item_recipe_id, color_id, quantity')
+                    .in('order_item_recipe_id', recipeIds)
+
+                const colorByRecipeId: Record<string, RecipeColorItem[]> = {}
+                ;(recipeColors || []).forEach((row: any) => {
+                    if (!row.order_item_recipe_id || !row.color_id) return
+                    colorByRecipeId[row.order_item_recipe_id] = colorByRecipeId[row.order_item_recipe_id] || []
+                    colorByRecipeId[row.order_item_recipe_id].push({ colorId: row.color_id, quantity: row.quantity || 1 })
+                })
+
+                lines = orderItemRecipes.map((row: any) => ({
+                    productId: row.product_id,
+                    quantity: row.quantity || 1,
+                    colorItems: colorByRecipeId[row.id] || []
+                })).filter((line: RecipeLine) => !!line.productId)
+            } else if (item.product_id) {
+                const { data: productRecipes } = await (supabase
+                    .from('product_recipes') as any)
+                    .select('id, child_product_id, quantity')
+                    .eq('parent_product_id', item.product_id)
+
+                const recipeIds = (productRecipes || []).map((r: any) => r.id)
+                const { data: recipeColors } = recipeIds.length > 0
+                    ? await (supabase.from('product_recipe_flower_colors') as any)
+                        .select('recipe_id, color_id, quantity').in('recipe_id', recipeIds)
+                    : { data: [] as any[] }
+
+                const colorByRecipeId: Record<string, RecipeColorItem[]> = {}
+                ;(recipeColors || []).forEach((row: any) => {
+                    if (!row.recipe_id || !row.color_id) return
+                    colorByRecipeId[row.recipe_id] = colorByRecipeId[row.recipe_id] || []
+                    colorByRecipeId[row.recipe_id].push({ colorId: row.color_id, quantity: row.quantity || 1 })
+                })
+
+                lines = (productRecipes || []).map((row: any) => ({
+                    productId: row.child_product_id,
+                    quantity: row.quantity || 1,
+                    colorItems: colorByRecipeId[row.id] || []
+                })).filter((line: RecipeLine) => !!line.productId)
+            }
+        }
+
+        if (item.is_custom && lines.length > 0) {
+            lines = lines.map(line => {
+                if ((line.colorItems || []).length > 0) return line
+                const defaultColors = defaultColorIdsByProduct[line.productId] || []
+                const fallbackColorId = defaultColors[0] || availableColors[0]?.id || ''
+                return { ...line, colorItems: [{ colorId: fallbackColorId, quantity: 1 }] }
+            })
+        }
+
+        setEditRecipesByItemId(prev => ({ ...prev, [item.id]: lines }))
+        setEditRecipeLoading(false)
+    }
+
+    async function toggleEditRecipeItem(item: OrderWithItems['order_items'][number]) {
+        if (editActiveRecipeItemId === item.id) {
+            setEditActiveRecipeItemId(null)
+            return
+        }
+        setEditActiveRecipeItemId(item.id)
+        setEditNewRecipeProductId('')
+        setEditNewRecipeQuantity(1)
+        if (!editRecipesByItemId[item.id]) {
+            await loadEditRecipeForItem(item)
+        }
+    }
+
+    function updateEditRecipeLines(itemId: string, updater: (prev: RecipeLine[]) => RecipeLine[]) {
+        setEditRecipesByItemId(prev => ({ ...prev, [itemId]: updater(prev[itemId] || []) }))
+        setEditRecipeDirtyItems(prev => new Set(prev).add(itemId))
+    }
+
+    function addEditRecipeLine(itemId: string) {
+        if (!editNewRecipeProductId) return
+        const product = allProducts.find(p => p.id === editNewRecipeProductId)
+        if (!product) return
+        const current = editRecipesByItemId[itemId] || []
+        const item = editOrderItems.find(i => i.id === itemId)
+
+        if (current.find(line => line.productId === editNewRecipeProductId)) {
+            updateEditRecipeLines(itemId, prev => prev.map(line =>
+                line.productId === editNewRecipeProductId
+                    ? { ...line, quantity: line.quantity + editNewRecipeQuantity }
+                    : line
+            ))
+        } else {
+            const defaultColors = defaultColorIdsByProduct[editNewRecipeProductId] || []
+            // For custom items or flowers, always start with at least one color entry
+            const initialColorItems = product.type === 'flower'
+                ? (defaultColors.length > 0
+                    ? [{ colorId: defaultColors[0], quantity: editNewRecipeQuantity }]
+                    : (availableColors.length > 0
+                        ? [{ colorId: availableColors[0].id, quantity: 1 }]
+                        : []))
+                : []
+            updateEditRecipeLines(itemId, prev => [...prev, {
+                productId: editNewRecipeProductId, quantity: editNewRecipeQuantity, colorItems: initialColorItems
+            }])
+        }
+        setEditNewRecipeProductId('')
+        setEditNewRecipeQuantity(1)
+    }
+
+    function removeEditRecipeLine(itemId: string, productId: string) {
+        updateEditRecipeLines(itemId, prev => prev.filter(l => l.productId !== productId))
+    }
+
+    function addEditRecipeColor(itemId: string, productId: string) {
+        const lines = editRecipesByItemId[itemId] || []
+        const line = lines.find(l => l.productId === productId)
+        if (!line) return
+        const usedIds = new Set((line.colorItems || []).map(ci => ci.colorId))
+        const defaultIds = defaultColorIdsByProduct[productId] || []
+        const nextDefault = defaultIds.find(id => !usedIds.has(id))
+        const nextAny = availableColors.find(c => !usedIds.has(c.id))?.id
+        const nextColorId = nextDefault || nextAny || ''
+        updateEditRecipeLines(itemId, prev => prev.map(l =>
+            l.productId === productId
+            ? { ...l, colorItems: [...l.colorItems, { colorId: nextColorId, quantity: 1 }] }
+                : l
+        ))
+    }
+
+    function updateEditRecipeColor(itemId: string, productId: string, index: number, patch: Partial<RecipeColorItem>) {
+        updateEditRecipeLines(itemId, prev => prev.map(line => {
+            if (line.productId !== productId) return line
+            const nextColors = [...line.colorItems]
+            if (!nextColors[index]) return line
+            nextColors[index] = { ...nextColors[index], ...patch }
+            return { ...line, colorItems: nextColors }
+        }))
+    }
+
+    function removeEditRecipeColor(itemId: string, productId: string, index: number) {
+        updateEditRecipeLines(itemId, prev => prev.map(line => {
+            if (line.productId !== productId) return line
+            const nextColors = [...line.colorItems]
+            nextColors.splice(index, 1)
+            return { ...line, colorItems: nextColors }
+        }))
+    }
+
+    async function saveEditRecipes() {
+        for (const itemId of editRecipeDirtyItems) {
+            const item = editOrderItems.find(i => i.id === itemId)
+            if (!item) continue
+            const lines = editRecipesByItemId[itemId] || []
+
+            if (item.is_custom) {
+                await (supabase.from('custom_item_flowers') as any).delete().eq('order_item_id', itemId)
+                const rows = lines.flatMap(line =>
+                    line.colorItems.filter(ci => !!ci.colorId && ci.quantity > 0).map(ci => ({
+                        order_item_id: itemId, product_id: line.productId,
+                        color_id: ci.colorId, quantity: ci.quantity
+                    }))
+                )
+                if (rows.length > 0) {
+                    await (supabase.from('custom_item_flowers') as any).insert(rows)
+                }
+            } else {
+                await (supabase.from('order_item_recipes') as any).delete().eq('order_item_id', itemId)
+                const recipeRows = lines.map(line => ({
+                    order_item_id: itemId, product_id: line.productId, quantity: line.quantity
+                }))
+                const { data: createdRecipes } = await (supabase.from('order_item_recipes') as any)
+                    .insert(recipeRows).select('id, product_id')
+
+                const recipeIdByProduct: Record<string, string> = {}
+                ;(createdRecipes || []).forEach((row: any) => {
+                    if (row.product_id) recipeIdByProduct[row.product_id] = row.id
+                })
+
+                const colorRows = lines.flatMap(line => {
+                    const recipeId = recipeIdByProduct[line.productId]
+                    if (!recipeId) return []
+                    return (line.colorItems || []).filter(ci => !!ci.colorId && ci.quantity > 0).map(ci => ({
+                        order_item_recipe_id: recipeId, color_id: ci.colorId, quantity: ci.quantity
+                    }))
+                })
+                if (colorRows.length > 0) {
+                    await (supabase.from('order_item_recipe_flower_colors') as any).insert(colorRows)
+                }
+            }
+        }
     }
 
     // Save ALL edited fields
@@ -601,6 +855,9 @@ export function ScheduledOrdersView() {
                 }
             }
 
+            // Save inline recipe edits
+            await saveEditRecipes()
+
             alert('Pedido actualizado correctamente')
             setEditingOrder(null)
             await fetchScheduledOrders()
@@ -644,6 +901,13 @@ export function ScheduledOrdersView() {
                     </div>
                 </TableCell>
                 <TableCell>{order.clients?.full_name || 'Sin cliente'}</TableCell>
+                <TableCell>
+                    <div className="flex flex-col gap-0.5 max-w-[180px]">
+                        {order.item_names && order.item_names.length > 0 ? order.item_names.map((name, i) => (
+                            <span key={i} className="text-xs truncate" title={name}>{name}</span>
+                        )) : <span className="text-xs text-muted-foreground">-</span>}
+                    </div>
+                </TableCell>
                 <TableCell>
                     {order.client_phone ? (
                         <a href={`tel:${order.client_phone}`} className="flex items-center gap-1 text-blue-600 hover:underline">
@@ -729,6 +993,7 @@ export function ScheduledOrdersView() {
                                         <TableHead>Ticket</TableHead>
                                         <TableHead>Fecha / Cuenta regresiva</TableHead>
                                         <TableHead>Cliente</TableHead>
+                                        <TableHead>Producto / Ramo</TableHead>
                                         <TableHead>Teléfono</TableHead>
                                         <TableHead>Tipo</TableHead>
                                         <TableHead>Total</TableHead>
@@ -742,7 +1007,7 @@ export function ScheduledOrdersView() {
                                     {groupOrders.map(renderOrderRow)}
                                     {groupOrders.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                                            <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                                                 {searchPhone ? 'No se encontraron pedidos con ese teléfono' : 'No hay pedidos agendados pendientes'}
                                             </TableCell>
                                         </TableRow>
@@ -757,7 +1022,7 @@ export function ScheduledOrdersView() {
             {/* Detail Dialog */}
             {selectedOrder && (
                 <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-                    <DialogContent className="max-w-2xl">
+                    <DialogContent className="w-[95vw] max-w-3xl max-h-[95vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                                 <Ticket className="h-5 w-5" />
@@ -894,14 +1159,14 @@ export function ScheduledOrdersView() {
 
             {/* FULL EDIT Modal */}
             <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
-                <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+                <DialogContent className="w-[97vw] max-w-5xl max-h-[96vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Edit className="h-5 w-5" />
                             Editar Pedido #{editingOrder?.ticket_number || ''}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 py-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 py-2">
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
@@ -950,11 +1215,26 @@ export function ScheduledOrdersView() {
                         </div>
 
                         <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Color de Etiqueta</Label>
-                                <div className="flex gap-2 items-center">
-                                    <input type="color" value={editLabelColor} onChange={(e) => setEditLabelColor(e.target.value)} className="h-10 w-20 rounded border cursor-pointer" />
-                                    <span className="text-sm text-muted-foreground">Para identificar en el calendario</span>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Color de Etiqueta</Label>
+                                    <div className="flex gap-2 items-center">
+                                        <input type="color" value={editLabelColor} onChange={(e) => setEditLabelColor(e.target.value)} className="h-10 w-14 rounded border cursor-pointer" />
+                                        <span className="text-xs text-muted-foreground">Calendario</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Adelanto (S/)</Label>
+                                    <Input type="number" value={editAdvancePayment} onChange={(e) => setEditAdvancePayment(e.target.value)} placeholder="0.00" />
+                                    {parseFloat(editAdvancePayment || '0') > 0 && editingOrder && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Saldo: S/ {(
+                                                (editingOrder.total_amount - (editingOrder.delivery_fee || 0)) +
+                                                (editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0) -
+                                                parseFloat(editAdvancePayment || '0')
+                                            ).toFixed(2)}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -965,42 +1245,198 @@ export function ScheduledOrdersView() {
                                 </div>
                             )}
 
+                            {/* Inline Recipe Editor */}
                             <div className="space-y-2">
-                                <Label>Adelanto (S/)</Label>
-                                <Input type="number" value={editAdvancePayment} onChange={(e) => setEditAdvancePayment(e.target.value)} placeholder="0.00" />
-                                {parseFloat(editAdvancePayment || '0') > 0 && editingOrder && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Saldo pendiente: S/ {(
-                                            (editingOrder.total_amount - (editingOrder.delivery_fee || 0)) +
-                                            (editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0) -
-                                            parseFloat(editAdvancePayment || '0')
-                                        ).toFixed(2)}
-                                    </p>
-                                )}
-                            </div>
-
-                            {selectedOrder && (
+                                <Label className="text-base font-semibold">Receta Floral por Producto</Label>
+                                <p className="text-xs text-muted-foreground">Edita la composición de flores para taller</p>
                                 <div className="space-y-2">
-                                    <Label>Receta Floral</Label>
-                                    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-                                        {selectedOrder.order_items.map((item, idx) => (
-                                            <div key={idx} className="flex items-center justify-between text-sm gap-2">
-                                                <span className="min-w-0 truncate">
-                                                    {item.quantity}x {item.custom_item_name || item.products?.name}
-                                                </span>
-                                                {(item.is_custom || item.products?.type === 'composite') && (
-                                                    <Button size="sm" variant="outline" onClick={() => openRecipeEditor(item)}>
-                                                        Editar receta
-                                                    </Button>
+                                    {editOrderItems.length === 0 && (
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                                            <Loader2 className="h-4 w-4 animate-spin" /> Cargando productos...
+                                        </div>
+                                    )}
+                                    {editOrderItems.map((item) => {
+                                        const hasRecipe = item.is_custom || item.products?.type === 'composite'
+                                        const isExpanded = editActiveRecipeItemId === item.id
+                                        const lines = editRecipesByItemId[item.id] || []
+                                        const displayName = item.is_custom
+                                            ? `🌸 Ramo Personalizado${item.custom_item_name ? ` (${item.custom_item_name})` : ''}`
+                                            : `${item.products?.name || 'Producto'}`
+
+                                        return (
+                                            <div key={item.id} className={`rounded-md border ${item.is_custom ? 'border-pink-200 bg-pink-50/30' : 'bg-background'}`}>
+                                                <button
+                                                    type="button"
+                                                    className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors ${hasRecipe ? 'cursor-pointer' : 'cursor-default'}`}
+                                                    onClick={() => hasRecipe && toggleEditRecipeItem(item)}
+                                                    disabled={!hasRecipe}
+                                                >
+                                                    <span className="min-w-0 truncate font-medium">
+                                                        {item.quantity}x {displayName}
+                                                    </span>
+                                                    {hasRecipe && (
+                                                        <Badge variant={item.is_custom ? 'default' : 'outline'} className={`shrink-0 ml-2 ${item.is_custom ? 'bg-pink-500 hover:bg-pink-600' : ''}`}>
+                                                            {isExpanded ? '▲ Cerrar' : `▼ ${lines.length > 0 ? `${lines.length} flores` : 'Agregar flores'}`}
+                                                        </Badge>
+                                                    )}
+                                                    {!hasRecipe && (
+                                                        <span className="text-xs text-muted-foreground">Sin receta</span>
+                                                    )}
+                                                </button>
+
+                                                {hasRecipe && isExpanded && (
+                                                    <div className="border-t px-3 py-3 space-y-3">
+                                                        {editRecipeLoading ? (
+                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                                <Loader2 className="h-4 w-4 animate-spin" /> Cargando...
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                {lines.map(line => {
+                                                                    const product = allProducts.find(p => p.id === line.productId)
+                                                                    const isFlower = product?.type === 'flower'
+                                                                    const usedColorIds = new Set((line.colorItems || []).map(ci => ci.colorId))
+                                                                    const defaultIds = new Set(defaultColorIdsByProduct[line.productId] || [])
+                                                                    const totalByFlower = (line.colorItems || []).reduce((s, ci) => s + ci.quantity, 0)
+
+                                                                    return (
+                                                                        <div key={line.productId} className="rounded-md border bg-muted/10 p-2 space-y-2">
+                                                                            <div className="flex items-center justify-between gap-2">
+                                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                                    {product?.flower_color_hex && (
+                                                                                        <span className="w-3 h-3 rounded-full border shrink-0" style={{ backgroundColor: product.flower_color_hex }} />
+                                                                                    )}
+                                                                                    <span className="text-sm font-medium truncate">{product?.name || 'Producto'}</span>
+                                                                                    {isFlower && totalByFlower > 0 && (
+                                                                                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                                                                                            Total: {totalByFlower}
+                                                                                        </Badge>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                                    {!item.is_custom && (
+                                                                                        <>
+                                                                                            <Input
+                                                                                                type="number" min="1" value={line.quantity}
+                                                                                                onChange={(e) => updateEditRecipeLines(item.id, prev => prev.map(l =>
+                                                                                                    l.productId === line.productId ? { ...l, quantity: parseInt(e.target.value) || 1 } : l
+                                                                                                ))}
+                                                                                                className="w-16 h-7 text-xs"
+                                                                                            />
+                                                                                            <span className="text-[11px] text-muted-foreground">uds</span>
+                                                                                        </>
+                                                                                    )}
+                                                                                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                                                                                        onClick={() => removeEditRecipeLine(item.id, line.productId)}>
+                                                                                        <Trash2 className="h-3 w-3" />
+                                                                                    </Button>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {isFlower && (
+                                                                                <div className="space-y-1.5 pl-1">
+                                                                                    {(line.colorItems || []).map((colorItem, index) => {
+                                                                                        const options = availableColors
+                                                                                            .filter(color => color.id === colorItem.colorId || !usedColorIds.has(color.id))
+                                                                                            .sort((a, b) => {
+                                                                                                const aD = defaultIds.has(a.id), bD = defaultIds.has(b.id)
+                                                                                                if (aD !== bD) return aD ? -1 : 1
+                                                                                                return a.name.localeCompare(b.name)
+                                                                                            })
+                                                                                        return (
+                                                                                            <div key={`${colorItem.colorId}-${index}`} className="flex items-center gap-1.5">
+                                                                                                <Select value={colorItem.colorId}
+                                                                                                    onValueChange={(v) => updateEditRecipeColor(item.id, line.productId, index, { colorId: v })}>
+                                                                                                    <SelectTrigger className="h-7 text-xs flex-1">
+                                                                                                        <SelectValue placeholder="Color" />
+                                                                                                    </SelectTrigger>
+                                                                                                    <SelectContent>
+                                                                                                        {options.map(c => (
+                                                                                                            <SelectItem key={c.id} value={c.id}>
+                                                                                                                <span className="flex items-center gap-1.5">
+                                                                                                                    <span className="w-2.5 h-2.5 rounded-full border" style={{ backgroundColor: c.hex }} />
+                                                                                                                    {c.name}
+                                                                                                                </span>
+                                                                                                            </SelectItem>
+                                                                                                        ))}
+                                                                                                    </SelectContent>
+                                                                                                </Select>
+                                                                                                <Input type="number" min="1" value={colorItem.quantity}
+                                                                                                    onChange={(e) => updateEditRecipeColor(item.id, line.productId, index, { quantity: parseInt(e.target.value) || 1 })}
+                                                                                                    className="w-14 h-7 text-xs" />
+                                                                                                <span className="text-[11px] text-muted-foreground">uds</span>
+                                                                                                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                                                                                                    onClick={() => removeEditRecipeColor(item.id, line.productId, index)}>
+                                                                                                    <Trash2 className="h-3 w-3" />
+                                                                                                </Button>
+                                                                                            </div>
+                                                                                        )
+                                                                                    })}
+                                                                                    {(line.colorItems || []).length === 0 && (
+                                                                                        <p className="text-[11px] text-muted-foreground italic">Sin colores. Agrega al menos uno.</p>
+                                                                                    )}
+                                                                                    {availableColors.length === 0 && (
+                                                                                        <p className="text-[11px] text-muted-foreground italic">No hay colores cargados.</p>
+                                                                                    )}
+                                                                                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
+                                                                                        onClick={() => addEditRecipeColor(item.id, line.productId)}>
+                                                                                        + Color
+                                                                                    </Button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )
+                                                                })}
+
+                                                                {lines.length === 0 && (
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        {item.is_custom
+                                                                            ? 'Este ramo es personalizado. Agrega las flores y colores que lo componen.'
+                                                                            : 'Sin ingredientes. Agrega flores abajo.'}
+                                                                    </p>
+                                                                )}
+
+                                                                <div className="flex gap-1.5 items-end pt-1">
+                                                                    <Select value={editNewRecipeProductId} onValueChange={setEditNewRecipeProductId}>
+                                                                        <SelectTrigger className="h-8 text-xs flex-1">
+                                                                            <SelectValue placeholder={item.is_custom ? 'Seleccionar flor...' : 'Agregar flor...'} />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {allProducts
+                                                                                .filter(p => {
+                                                                                    if (lines.find(l => l.productId === p.id)) return false
+                                                                                    if (item.is_custom) return p.type === 'flower'
+                                                                                    return true
+                                                                                })
+                                                                                .map(p => (
+                                                                                    <SelectItem key={p.id} value={p.id}>
+                                                                                        <span className="flex items-center gap-1.5">
+                                                                                            {p.flower_color_hex && <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.flower_color_hex }} />}
+                                                                                            {p.name}
+                                                                                        </span>
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    {!item.is_custom && (
+                                                                        <Input type="number" min="1" value={editNewRecipeQuantity}
+                                                                            onChange={(e) => setEditNewRecipeQuantity(parseInt(e.target.value) || 1)}
+                                                                            className="w-14 h-8 text-xs" />
+                                                                    )}
+                                                                    <Button type="button" variant="outline" size="sm" className="h-8"
+                                                                        onClick={() => addEditRecipeLine(item.id)} disabled={!editNewRecipeProductId}>
+                                                                        <Plus className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
-                                        ))}
-                                        {!selectedOrder.order_items.some(item => item.is_custom || item.products?.type === 'composite') && (
-                                            <p className="text-xs text-muted-foreground">Sin recetas editables en este pedido.</p>
-                                        )}
-                                    </div>
+                                        )
+                                    })}
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
                     <DialogFooter>
