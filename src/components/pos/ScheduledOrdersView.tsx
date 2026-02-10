@@ -259,7 +259,7 @@ export function ScheduledOrdersView() {
                 .update({
                     delivery_date: newDeliveryDate,
                     delivery_type: editDeliveryType,
-                    delivery_address: editDeliveryType === 'delivery' ? editDeliveryAddress : null,
+                    delivery_address: editDeliveryType === 'delivery' ? editDeliveryAddress : 'Tienda',
                     delivery_latitude: editDeliveryType === 'delivery' ? editingOrder.delivery_latitude : null,
                     delivery_longitude: editDeliveryType === 'delivery' ? editingOrder.delivery_longitude : null,
                     client_phone: editClientPhone || null,
