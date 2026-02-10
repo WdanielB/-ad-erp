@@ -894,85 +894,112 @@ export function ScheduledOrdersView() {
 
             {/* FULL EDIT Modal */}
             <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Edit className="h-5 w-5" />
                             Editar Pedido #{editingOrder?.ticket_number || ''}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 py-4">
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Fecha de Entrega</Label>
+                                    <Input type="date" value={editDeliveryDate} onChange={(e) => setEditDeliveryDate(e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Hora de Entrega</Label>
+                                    <Input type="time" value={editDeliveryTime} onChange={(e) => setEditDeliveryTime(e.target.value)} />
+                                </div>
+                            </div>
+
                             <div className="space-y-2">
-                                <Label>Fecha de Entrega</Label>
-                                <Input type="date" value={editDeliveryDate} onChange={(e) => setEditDeliveryDate(e.target.value)} />
+                                <Label>Tipo de Entrega</Label>
+                                <div className="flex gap-2">
+                                    <Button type="button" variant={editDeliveryType === 'delivery' ? 'default' : 'outline'}
+                                        onClick={() => setEditDeliveryType('delivery')} className="flex-1">Entrega</Button>
+                                    <Button type="button" variant={editDeliveryType === 'pickup' ? 'default' : 'outline'}
+                                        onClick={() => setEditDeliveryType('pickup')} className="flex-1">Recojo</Button>
+                                </div>
                             </div>
+
                             <div className="space-y-2">
-                                <Label>Hora de Entrega</Label>
-                                <Input type="time" value={editDeliveryTime} onChange={(e) => setEditDeliveryTime(e.target.value)} />
+                                <Label>Número de Celular</Label>
+                                <Input value={editClientPhone} onChange={(e) => setEditClientPhone(e.target.value)} placeholder="999999999" />
                             </div>
-                        </div>
 
-                        <div className="space-y-2">
-                            <Label>Tipo de Entrega</Label>
-                            <div className="flex gap-2">
-                                <Button type="button" variant={editDeliveryType === 'delivery' ? 'default' : 'outline'}
-                                    onClick={() => setEditDeliveryType('delivery')} className="flex-1">Entrega</Button>
-                                <Button type="button" variant={editDeliveryType === 'pickup' ? 'default' : 'outline'}
-                                    onClick={() => setEditDeliveryType('pickup')} className="flex-1">Recojo</Button>
-                            </div>
-                        </div>
+                            {editDeliveryType === 'delivery' && (
+                                <div className="space-y-2">
+                                    <Label>Dirección de Entrega</Label>
+                                    <Input value={editDeliveryAddress} onChange={(e) => setEditDeliveryAddress(e.target.value)} placeholder="Dirección completa" />
+                                </div>
+                            )}
 
-                        <div className="space-y-2">
-                            <Label>Número de Celular</Label>
-                            <Input value={editClientPhone} onChange={(e) => setEditClientPhone(e.target.value)} placeholder="999999999" />
-                        </div>
-
-                        {editDeliveryType === 'delivery' && (
                             <div className="space-y-2">
-                                <Label>Dirección de Entrega</Label>
-                                <Input value={editDeliveryAddress} onChange={(e) => setEditDeliveryAddress(e.target.value)} placeholder="Dirección completa" />
+                                <Label>Dedicatoria</Label>
+                                <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    value={editDedication} onChange={(e) => setEditDedication(e.target.value)} placeholder="Mensaje para la tarjeta..." rows={3} />
                             </div>
-                        )}
 
-                        <div className="space-y-2">
-                            <Label>Dedicatoria</Label>
-                            <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                value={editDedication} onChange={(e) => setEditDedication(e.target.value)} placeholder="Mensaje para la tarjeta..." rows={3} />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Nota Interna</Label>
-                            <textarea className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notas internas..." rows={2} />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Color de Etiqueta</Label>
-                            <div className="flex gap-2 items-center">
-                                <input type="color" value={editLabelColor} onChange={(e) => setEditLabelColor(e.target.value)} className="h-10 w-20 rounded border cursor-pointer" />
-                                <span className="text-sm text-muted-foreground">Para identificar en el calendario</span>
-                            </div>
-                        </div>
-
-                        {editDeliveryType === 'delivery' && (
                             <div className="space-y-2">
-                                <Label>Precio de Delivery (S/)</Label>
-                                <Input type="number" step="0.01" value={editDeliveryFee} onChange={(e) => setEditDeliveryFee(e.target.value)} placeholder="10.00" />
+                                <Label>Nota Interna</Label>
+                                <textarea className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notas internas..." rows={2} />
                             </div>
-                        )}
+                        </div>
 
-                        <div className="space-y-2">
-                            <Label>Adelanto (S/)</Label>
-                            <Input type="number" value={editAdvancePayment} onChange={(e) => setEditAdvancePayment(e.target.value)} placeholder="0.00" />
-                            {parseFloat(editAdvancePayment || '0') > 0 && editingOrder && (
-                                <p className="text-xs text-muted-foreground">
-                                    Saldo pendiente: S/ {(
-                                        (editingOrder.total_amount - (editingOrder.delivery_fee || 0)) +
-                                        (editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0) -
-                                        parseFloat(editAdvancePayment || '0')
-                                    ).toFixed(2)}
-                                </p>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label>Color de Etiqueta</Label>
+                                <div className="flex gap-2 items-center">
+                                    <input type="color" value={editLabelColor} onChange={(e) => setEditLabelColor(e.target.value)} className="h-10 w-20 rounded border cursor-pointer" />
+                                    <span className="text-sm text-muted-foreground">Para identificar en el calendario</span>
+                                </div>
+                            </div>
+
+                            {editDeliveryType === 'delivery' && (
+                                <div className="space-y-2">
+                                    <Label>Precio de Delivery (S/)</Label>
+                                    <Input type="number" step="0.01" value={editDeliveryFee} onChange={(e) => setEditDeliveryFee(e.target.value)} placeholder="10.00" />
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <Label>Adelanto (S/)</Label>
+                                <Input type="number" value={editAdvancePayment} onChange={(e) => setEditAdvancePayment(e.target.value)} placeholder="0.00" />
+                                {parseFloat(editAdvancePayment || '0') > 0 && editingOrder && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Saldo pendiente: S/ {(
+                                            (editingOrder.total_amount - (editingOrder.delivery_fee || 0)) +
+                                            (editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0) -
+                                            parseFloat(editAdvancePayment || '0')
+                                        ).toFixed(2)}
+                                    </p>
+                                )}
+                            </div>
+
+                            {selectedOrder && (
+                                <div className="space-y-2">
+                                    <Label>Receta Floral</Label>
+                                    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                                        {selectedOrder.order_items.map((item, idx) => (
+                                            <div key={idx} className="flex items-center justify-between text-sm gap-2">
+                                                <span className="min-w-0 truncate">
+                                                    {item.quantity}x {item.custom_item_name || item.products?.name}
+                                                </span>
+                                                {(item.is_custom || item.products?.type === 'composite') && (
+                                                    <Button size="sm" variant="outline" onClick={() => openRecipeEditor(item)}>
+                                                        Editar receta
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {!selectedOrder.order_items.some(item => item.is_custom || item.products?.type === 'composite') && (
+                                            <p className="text-xs text-muted-foreground">Sin recetas editables en este pedido.</p>
+                                        )}
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </div>
