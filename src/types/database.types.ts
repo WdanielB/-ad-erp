@@ -333,6 +333,55 @@ export interface Database {
                     is_custom?: boolean | null
                 }
             }
+            order_item_recipes: {
+                Row: {
+                    id: string
+                    order_item_id: string | null
+                    product_id: string | null
+                    quantity: number
+                    source_recipe_id: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    order_item_id?: string | null
+                    product_id?: string | null
+                    quantity: number
+                    source_recipe_id?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    order_item_id?: string | null
+                    product_id?: string | null
+                    quantity?: number
+                    source_recipe_id?: string | null
+                    created_at?: string
+                }
+            }
+            order_item_recipe_flower_colors: {
+                Row: {
+                    id: string
+                    order_item_recipe_id: string | null
+                    color_id: string | null
+                    quantity: number
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    order_item_recipe_id?: string | null
+                    color_id?: string | null
+                    quantity: number
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    order_item_recipe_id?: string | null
+                    color_id?: string | null
+                    quantity?: number
+                    created_at?: string
+                }
+            }
             transaction_categories: {
                 Row: {
                     id: string

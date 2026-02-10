@@ -27,11 +27,21 @@ type Order = Database['public']['Tables']['orders']['Row'] & {
     }>
 }
 
+interface FlowerCountItem {
+    productId: string | null
+    productName: string
+    colorId: string | null
+    colorName: string | null
+    colorHex: string | null
+    totalQuantity: number
+}
+
 export function WorkshopOrderList() {
     const [activeOrders, setActiveOrders] = useState<Order[]>([])
     const [completedOrders, setCompletedOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+    const [flowerCounts, setFlowerCounts] = useState<FlowerCountItem[]>([])
 
     async function fetchOrders() {
         setLoading(true)
@@ -51,9 +61,251 @@ export function WorkshopOrderList() {
             .order('delivery_date', { ascending: false })
             .limit(20)
 
-        if (active) setActiveOrders(active as Order[])
+        if (active) {
+            setActiveOrders(active as Order[])
+            const activeIds = (active as Order[]).map(order => order.id)
+            await fetchFlowerCounts(activeIds)
+        } else {
+            setFlowerCounts([])
+        }
         if (completed) setCompletedOrders(completed as Order[])
         setLoading(false)
+    }
+
+    async function fetchFlowerCounts(orderIds: string[]) {
+        if (!orderIds || orderIds.length === 0) {
+            setFlowerCounts([])
+            return
+        }
+
+        const { data: orderItems } = await (supabase
+            .from('order_items') as any)
+            .select('id, order_id, quantity, is_custom, product_id')
+            .in('order_id', orderIds)
+
+        const items = orderItems || []
+        if (items.length === 0) {
+            setFlowerCounts([])
+            return
+        }
+
+        const orderItemMap = new Map<string, { quantity: number; isCustom: boolean }>()
+        items.forEach((item: any) => {
+            orderItemMap.set(item.id, { quantity: item.quantity || 1, isCustom: !!item.is_custom })
+        })
+
+        const customItemIds = items.filter((i: any) => i.is_custom).map((i: any) => i.id)
+        const standardItemIds = items.filter((i: any) => !i.is_custom).map((i: any) => i.id)
+
+        const { data: customFlowers } = customItemIds.length > 0
+            ? await (supabase
+                .from('custom_item_flowers') as any)
+                .select('order_item_id, product_id, color_id, quantity, products(name), flower_colors(name, hex)')
+                .in('order_item_id', customItemIds)
+            : { data: [] as any[] }
+
+        const { data: orderItemRecipes } = standardItemIds.length > 0
+            ? await (supabase
+                .from('order_item_recipes') as any)
+                .select('id, order_item_id, product_id, quantity, products(name)')
+                .in('order_item_id', standardItemIds)
+            : { data: [] as any[] }
+
+        const recipeOrderItemIds = new Set((orderItemRecipes || []).map((row: any) => row.order_item_id))
+        const missingRecipeItems = items
+            .filter((item: any) => !item.is_custom && !recipeOrderItemIds.has(item.id) && item.product_id)
+
+        const fallbackParentIds = Array.from(new Set(missingRecipeItems.map((item: any) => item.product_id)))
+        const { data: fallbackRecipes } = fallbackParentIds.length > 0
+            ? await (supabase
+                .from('product_recipes') as any)
+                .select('id, parent_product_id, child_product_id, quantity')
+                .in('parent_product_id', fallbackParentIds)
+            : { data: [] as any[] }
+
+        const fallbackRecipeIds = (fallbackRecipes || []).map((r: any) => r.id)
+        const { data: fallbackRecipeColors } = fallbackRecipeIds.length > 0
+            ? await (supabase
+                .from('product_recipe_flower_colors') as any)
+                .select('recipe_id, color_id, quantity, flower_colors(name, hex)')
+                .in('recipe_id', fallbackRecipeIds)
+            : { data: [] as any[] }
+
+        const fallbackChildIds = Array.from(new Set((fallbackRecipes || [])
+            .map((row: any) => row.child_product_id)
+            .filter((id: string | null) => !!id)))
+
+        const { data: fallbackProducts } = fallbackChildIds.length > 0
+            ? await (supabase
+                .from('products') as any)
+                .select('id, name')
+                .in('id', fallbackChildIds)
+            : { data: [] as any[] }
+
+        const fallbackProductNameById: Record<string, string> = {}
+        ;(fallbackProducts || []).forEach((row: any) => {
+            if (row.id) fallbackProductNameById[row.id] = row.name
+        })
+
+        const recipeIds = (orderItemRecipes || []).map((r: any) => r.id)
+        const { data: recipeColors } = recipeIds.length > 0
+            ? await (supabase
+                .from('order_item_recipe_flower_colors') as any)
+                .select('order_item_recipe_id, color_id, quantity, flower_colors(name, hex)')
+                .in('order_item_recipe_id', recipeIds)
+            : { data: [] as any[] }
+
+        const colorByRecipeId: Record<string, any[]> = {}
+        ;(recipeColors || []).forEach((row: any) => {
+            if (!row.order_item_recipe_id) return
+            colorByRecipeId[row.order_item_recipe_id] = colorByRecipeId[row.order_item_recipe_id] || []
+            colorByRecipeId[row.order_item_recipe_id].push(row)
+        })
+
+        const fallbackColorsByRecipeId: Record<string, any[]> = {}
+        ;(fallbackRecipeColors || []).forEach((row: any) => {
+            if (!row.recipe_id) return
+            fallbackColorsByRecipeId[row.recipe_id] = fallbackColorsByRecipeId[row.recipe_id] || []
+            fallbackColorsByRecipeId[row.recipe_id].push(row)
+        })
+
+        const counts = new Map<string, FlowerCountItem>()
+
+        ;(customFlowers || []).forEach((row: any) => {
+            const orderItem = orderItemMap.get(row.order_item_id)
+            if (!orderItem) return
+            const total = (row.quantity || 0) * orderItem.quantity
+            const key = `${row.product_id || 'unknown'}:${row.color_id || 'none'}`
+            const existing = counts.get(key)
+            const productName = row.products?.name || 'Producto'
+            const colorName = row.flower_colors?.name || null
+            const colorHex = row.flower_colors?.hex || null
+
+            if (existing) {
+                existing.totalQuantity += total
+            } else {
+                counts.set(key, {
+                    productId: row.product_id || null,
+                    productName,
+                    colorId: row.color_id || null,
+                    colorName,
+                    colorHex,
+                    totalQuantity: total
+                })
+            }
+        })
+
+        ;(orderItemRecipes || []).forEach((row: any) => {
+            const orderItem = orderItemMap.get(row.order_item_id)
+            if (!orderItem) return
+            const colorRows = colorByRecipeId[row.id] || []
+
+            if (colorRows.length > 0) {
+                colorRows.forEach((colorRow: any) => {
+                    const total = (colorRow.quantity || 0) * orderItem.quantity
+                    const key = `${row.product_id || 'unknown'}:${colorRow.color_id || 'none'}`
+                    const existing = counts.get(key)
+                    const productName = row.products?.name || 'Producto'
+                    const colorName = colorRow.flower_colors?.name || null
+                    const colorHex = colorRow.flower_colors?.hex || null
+
+                    if (existing) {
+                        existing.totalQuantity += total
+                    } else {
+                        counts.set(key, {
+                            productId: row.product_id || null,
+                            productName,
+                            colorId: colorRow.color_id || null,
+                            colorName,
+                            colorHex,
+                            totalQuantity: total
+                        })
+                    }
+                })
+            } else {
+                const total = (row.quantity || 0) * orderItem.quantity
+                const key = `${row.product_id || 'unknown'}:none`
+                const existing = counts.get(key)
+                const productName = row.products?.name || 'Producto'
+
+                if (existing) {
+                    existing.totalQuantity += total
+                } else {
+                    counts.set(key, {
+                        productId: row.product_id || null,
+                        productName,
+                        colorId: null,
+                        colorName: null,
+                        colorHex: null,
+                        totalQuantity: total
+                    })
+                }
+            }
+        })
+
+        const fallbackByParent: Record<string, any[]> = {}
+        ;(fallbackRecipes || []).forEach((row: any) => {
+            if (!row.parent_product_id) return
+            fallbackByParent[row.parent_product_id] = fallbackByParent[row.parent_product_id] || []
+            fallbackByParent[row.parent_product_id].push(row)
+        })
+
+        missingRecipeItems.forEach((item: any) => {
+            const orderItem = orderItemMap.get(item.id)
+            if (!orderItem || !item.product_id) return
+            const recipeRows = fallbackByParent[item.product_id] || []
+
+            recipeRows.forEach((row: any) => {
+                const colorRows = fallbackColorsByRecipeId[row.id] || []
+                if (colorRows.length > 0) {
+                    colorRows.forEach((colorRow: any) => {
+                        const total = (colorRow.quantity || 0) * orderItem.quantity
+                        const key = `${row.child_product_id || 'unknown'}:${colorRow.color_id || 'none'}`
+                        const existing = counts.get(key)
+                        const productName = fallbackProductNameById[row.child_product_id] || 'Producto'
+                        const colorName = colorRow.flower_colors?.name || null
+                        const colorHex = colorRow.flower_colors?.hex || null
+
+                        if (existing) {
+                            existing.totalQuantity += total
+                        } else {
+                            counts.set(key, {
+                                productId: row.child_product_id || null,
+                                productName,
+                                colorId: colorRow.color_id || null,
+                                colorName,
+                                colorHex,
+                                totalQuantity: total
+                            })
+                        }
+                    })
+                } else {
+                    const total = (row.quantity || 0) * orderItem.quantity
+                    const key = `${row.child_product_id || 'unknown'}:none`
+                    const existing = counts.get(key)
+                    const productName = fallbackProductNameById[row.child_product_id] || 'Producto'
+
+                    if (existing) {
+                        existing.totalQuantity += total
+                    } else {
+                        counts.set(key, {
+                            productId: row.child_product_id || null,
+                            productName,
+                            colorId: null,
+                            colorName: null,
+                            colorHex: null,
+                            totalQuantity: total
+                        })
+                    }
+                }
+            })
+        })
+
+        const result = Array.from(counts.values())
+            .filter(item => item.totalQuantity > 0)
+            .sort((a, b) => a.productName.localeCompare(b.productName))
+
+        setFlowerCounts(result)
     }
 
     async function markAsCompleted(order: Order) {
@@ -184,6 +436,31 @@ export function WorkshopOrderList() {
 
     return (
         <div className="space-y-6">
+            <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">Conteo de Flores Pendientes</h3>
+                    <span className="text-xs text-muted-foreground">Total por color</span>
+                </div>
+                {flowerCounts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground mt-2">Sin recetas registradas.</p>
+                ) : (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {flowerCounts.map(item => (
+                            <div key={`${item.productId}-${item.colorId}`} className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {item.colorHex && (
+                                        <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: item.colorHex }} />
+                                    )}
+                                    <span className="truncate">
+                                        {item.productName}{item.colorName ? ` - ${item.colorName}` : ''}
+                                    </span>
+                                </div>
+                                <span className="font-semibold">{item.totalQuantity} tallos</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
             <Tabs defaultValue="active" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
                     <TabsTrigger value="active">Por Hacer ({activeOrders.length})</TabsTrigger>

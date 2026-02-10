@@ -213,6 +213,81 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
                 }
             }
 
+            // 2.6. Snapshot recipes for composite items
+            const compositeEntries = items
+                .map((item, index) => ({ item, created: createdItems[index] }))
+                .filter(({ item, created }) => !!created && !item.isCustom && item.product?.type === 'composite')
+
+            if (compositeEntries.length > 0) {
+                const compositeProductIds = Array.from(new Set(compositeEntries
+                    .map(entry => entry.item.product?.id)
+                    .filter((id): id is string => !!id)))
+
+                const { data: recipeData } = await (supabase
+                    .from('product_recipes') as any)
+                    .select('id, parent_product_id, child_product_id, quantity')
+                    .in('parent_product_id', compositeProductIds)
+
+                const recipeRows = recipeData || []
+                const recipeByParent: Record<string, any[]> = {}
+                recipeRows.forEach((row: any) => {
+                    if (!row.parent_product_id) return
+                    recipeByParent[row.parent_product_id] = recipeByParent[row.parent_product_id] || []
+                    recipeByParent[row.parent_product_id].push(row)
+                })
+
+                const recipeIds = recipeRows.map((row: any) => row.id)
+                const { data: recipeColorData } = recipeIds.length > 0
+                    ? await (supabase
+                        .from('product_recipe_flower_colors') as any)
+                        .select('recipe_id, color_id, quantity')
+                        .in('recipe_id', recipeIds)
+                    : { data: [] as any[] }
+
+                const colorByRecipeId: Record<string, any[]> = {}
+                ;(recipeColorData || []).forEach((row: any) => {
+                    if (!row.recipe_id) return
+                    colorByRecipeId[row.recipe_id] = colorByRecipeId[row.recipe_id] || []
+                    colorByRecipeId[row.recipe_id].push(row)
+                })
+
+                for (const entry of compositeEntries) {
+                    const productId = entry.item.product?.id
+                    if (!productId || !entry.created) continue
+                    const baseRecipes = recipeByParent[productId] || []
+                    if (baseRecipes.length === 0) continue
+
+                    const orderItemRecipeRows = baseRecipes.map((r: any) => ({
+                        order_item_id: entry.created.id,
+                        product_id: r.child_product_id,
+                        quantity: r.quantity,
+                        source_recipe_id: r.id
+                    }))
+
+                    const { data: createdOrderItemRecipes } = await (supabase
+                        .from('order_item_recipes') as any)
+                        .insert(orderItemRecipeRows)
+                        .select('id, source_recipe_id')
+
+                    const colorRows = (createdOrderItemRecipes || []).flatMap((row: any) => {
+                        const colors = colorByRecipeId[row.source_recipe_id] || []
+                        return colors
+                            .filter((c: any) => c.color_id)
+                            .map((c: any) => ({
+                                order_item_recipe_id: row.id,
+                                color_id: c.color_id,
+                                quantity: c.quantity || 1
+                            }))
+                    })
+
+                    if (colorRows.length > 0) {
+                        await (supabase
+                            .from('order_item_recipe_flower_colors') as any)
+                            .insert(colorRows)
+                    }
+                }
+            }
+
             // 3. Update Inventory (Only for non-custom items)
             for (const item of items) {
                 if (!item.isCustom && item.product && item.product.stock !== null) {
