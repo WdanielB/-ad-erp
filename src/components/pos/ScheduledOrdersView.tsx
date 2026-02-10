@@ -250,7 +250,8 @@ export function ScheduledOrdersView() {
         setSavingEdit(true)
         try {
             const newDeliveryDate = toLimaISO(editDeliveryDate, editDeliveryTime)
-            const newDeliveryFee = editDeliveryType === 'delivery' ? parseFloat(editDeliveryFee || '0') : 0
+            const parsedDeliveryFee = Number.isFinite(Number(editDeliveryFee)) ? Number(editDeliveryFee) : 0
+            const newDeliveryFee = editDeliveryType === 'delivery' ? parsedDeliveryFee : 0
             const originalSubtotal = editingOrder.total_amount - (editingOrder.delivery_fee || 0)
             const newTotal = originalSubtotal + newDeliveryFee
 
@@ -259,6 +260,8 @@ export function ScheduledOrdersView() {
                     delivery_date: newDeliveryDate,
                     delivery_type: editDeliveryType,
                     delivery_address: editDeliveryType === 'delivery' ? editDeliveryAddress : null,
+                    delivery_latitude: editDeliveryType === 'delivery' ? editingOrder.delivery_latitude : null,
+                    delivery_longitude: editDeliveryType === 'delivery' ? editingOrder.delivery_longitude : null,
                     client_phone: editClientPhone || null,
                     dedication: editDedication || null,
                     notes: editNotes || null,
@@ -287,9 +290,9 @@ export function ScheduledOrdersView() {
             alert('Pedido actualizado correctamente')
             setEditingOrder(null)
             await fetchScheduledOrders()
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error updating order:', error)
-            alert('Error al actualizar el pedido')
+            alert(`Error al actualizar el pedido: ${error?.message || 'Error desconocido'}`)
         } finally { setSavingEdit(false) }
     }
 

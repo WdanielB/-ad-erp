@@ -33,7 +33,7 @@ export interface OrderItem {
     customPrice?: number
     quantity: number
     isCustom: boolean
-    flowerItems?: Array<{ productId: string; quantity: number }>
+    flowerItems?: Array<{ productId: string; colorItems: Array<{ colorId: string; quantity: number }> }>
 }
 
 interface OrderSummaryProps {
@@ -41,7 +41,7 @@ interface OrderSummaryProps {
     onUpdateQuantity: (productId: string, delta: number) => void
     onRemoveItem: (productId: string) => void
     onClearOrder: () => void
-    onAddCustomItem: (name: string, price: number, flowerItems: Array<{ productId: string; quantity: number }>) => void
+    onAddCustomItem: (name: string, price: number, flowerItems: Array<{ productId: string; colorItems: Array<{ colorId: string; quantity: number }> }>) => void
     onOrderScheduled?: () => void
 }
 
@@ -194,15 +194,22 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
             for (let i = 0; i < items.length; i++) {
                 const item = items[i]
                 if (item.isCustom && item.flowerItems && item.flowerItems.length > 0 && createdItems[i]) {
-                    const flowerCompositions = item.flowerItems.map(flower => ({
-                        order_item_id: createdItems[i].id,
-                        product_id: flower.productId,
-                        quantity: flower.quantity
-                    }))
+                    const flowerCompositions = item.flowerItems.flatMap(flower =>
+                        flower.colorItems
+                            .filter(colorItem => colorItem.quantity > 0)
+                            .map(colorItem => ({
+                                order_item_id: createdItems[i].id,
+                                product_id: flower.productId,
+                                color_id: colorItem.colorId,
+                                quantity: colorItem.quantity
+                            }))
+                    )
 
-                    await (supabase
-                        .from('custom_item_flowers') as any)
-                        .insert(flowerCompositions)
+                    if (flowerCompositions.length > 0) {
+                        await (supabase
+                            .from('custom_item_flowers') as any)
+                            .insert(flowerCompositions)
+                    }
                 }
             }
 

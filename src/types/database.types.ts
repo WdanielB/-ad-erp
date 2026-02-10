@@ -114,6 +114,69 @@ export interface Database {
                     created_at?: string
                 }
             }
+            flower_colors: {
+                Row: {
+                    id: string
+                    name: string
+                    hex: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    name: string
+                    hex: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    name?: string
+                    hex?: string
+                    created_at?: string
+                }
+            }
+            product_flower_colors: {
+                Row: {
+                    id: string
+                    product_id: string | null
+                    color_id: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    product_id?: string | null
+                    color_id?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    product_id?: string | null
+                    color_id?: string | null
+                    created_at?: string
+                }
+            }
+            product_recipe_flower_colors: {
+                Row: {
+                    id: string
+                    recipe_id: string | null
+                    color_id: string | null
+                    quantity: number
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    recipe_id?: string | null
+                    color_id?: string | null
+                    quantity?: number
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    recipe_id?: string | null
+                    color_id?: string | null
+                    quantity?: number
+                    created_at?: string
+                }
+            }
             inventory_batches: {
                 Row: {
                     id: string
@@ -324,18 +387,24 @@ export interface Database {
                     id: string
                     order_item_id: string | null
                     product_id: string | null
+                    color_id: string | null
+                    quantity: number | null
                     created_at: string
                 }
                 Insert: {
                     id?: string
                     order_item_id?: string | null
                     product_id?: string | null
+                    color_id?: string | null
+                    quantity?: number | null
                     created_at?: string
                 }
                 Update: {
                     id?: string
                     order_item_id?: string | null
                     product_id?: string | null
+                    color_id?: string | null
+                    quantity?: number | null
                     created_at?: string
                 }
             }
