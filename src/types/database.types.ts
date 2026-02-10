@@ -101,18 +101,21 @@ export interface Database {
                 }
                 Insert: {
                     id?: string
+                                quantity: number | null
                     parent_product_id?: string | null
                     child_product_id?: string | null
                     quantity: number
                     created_at?: string
                 }
                 Update: {
+                                quantity?: number | null
                     id?: string
                     parent_product_id?: string | null
                     child_product_id?: string | null
                     quantity?: number
                     created_at?: string
                 }
+                                quantity?: number | null
             }
             inventory_batches: {
                 Row: {

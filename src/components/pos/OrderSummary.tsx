@@ -33,7 +33,7 @@ export interface OrderItem {
     customPrice?: number
     quantity: number
     isCustom: boolean
-    flowerIds?: string[]
+    flowerItems?: Array<{ productId: string; quantity: number }>
 }
 
 interface OrderSummaryProps {
@@ -41,7 +41,7 @@ interface OrderSummaryProps {
     onUpdateQuantity: (productId: string, delta: number) => void
     onRemoveItem: (productId: string) => void
     onClearOrder: () => void
-    onAddCustomItem: (name: string, price: number, flowerIds: string[]) => void
+    onAddCustomItem: (name: string, price: number, flowerItems: Array<{ productId: string; quantity: number }>) => void
     onOrderScheduled?: () => void
 }
 
@@ -193,10 +193,11 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
             // 2.5. Save flower composition for custom items
             for (let i = 0; i < items.length; i++) {
                 const item = items[i]
-                if (item.isCustom && item.flowerIds && item.flowerIds.length > 0 && createdItems[i]) {
-                    const flowerCompositions = item.flowerIds.map(flowerId => ({
+                if (item.isCustom && item.flowerItems && item.flowerItems.length > 0 && createdItems[i]) {
+                    const flowerCompositions = item.flowerItems.map(flower => ({
                         order_item_id: createdItems[i].id,
-                        product_id: flowerId
+                        product_id: flower.productId,
+                        quantity: flower.quantity
                     }))
 
                     await (supabase
@@ -251,22 +252,21 @@ export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrd
                     ? `https://www.google.com/maps/search/?api=1&query=${deliveryLocation.lat},${deliveryLocation.lng}`
                     : ''
 
-                const message = `✅ PEDIDO AGENDADO
+                const message = `✅ Pedido agendado
 
-TICKET: ${ticketNumber}
+Ticket: ${ticketNumber}
+Fecha: ${new Date(finalDeliveryDate).toLocaleDateString('es-PE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+Hora: ${scheduleTime}
+Servicio: ${deliveryType === 'delivery' ? 'Envio' : 'Recojo'}
 
-FECHA: ${new Date(finalDeliveryDate).toLocaleDateString('es-PE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-HORA DE ENVÍO: ${scheduleTime}
-(Rango 30-50 minutos de entrega)
-
-RAMO:
+Items:
 ${itemsList}
 
-${dedication ? `DEDICATORIA: ${dedication}\n` : ''}${orderNotes ? `NOTA: ${orderNotes}\n` : ''}TOTAL: S/ ${total.toFixed(2)}
-${deliveryType === 'delivery' ? `DELIVERY: S/ ${deliveryFeeAmount.toFixed(2)}\n` : ''}${advanceAmount > 0 ? `ADELANTO: S/ ${advanceAmount.toFixed(2)}\nSALDO: S/ ${balance.toFixed(2)}\n` : ''}
-${deliveryType === 'delivery' ? `DIRECCIÓN: ${deliveryAddress}` : 'RECOJO EN TIENDA'}
-${googleMapsLink ? `UBICACIÓN: ${googleMapsLink}` : ''}
-${clientPhone ? `\nCONTACTO: ${clientPhone}` : ''}`
+${dedication ? `Dedicatoria: ${dedication}\n` : ''}Total: S/ ${total.toFixed(2)}
+${deliveryType === 'delivery' ? `Delivery: S/ ${deliveryFeeAmount.toFixed(2)}\n` : ''}${advanceAmount > 0 ? `Adelanto: S/ ${advanceAmount.toFixed(2)}\nSaldo: S/ ${balance.toFixed(2)}\n` : ''}
+${deliveryType === 'delivery' ? `Direccion: ${deliveryAddress}` : 'Recojo en tienda'}
+${googleMapsLink ? `Ubicacion: ${googleMapsLink}` : ''}
+${clientPhone ? `\nContacto: ${clientPhone}` : ''}`
 
                 setConfirmationMessage(message)
                 setShowConfirmation(true)

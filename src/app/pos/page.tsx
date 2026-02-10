@@ -28,10 +28,10 @@ export default function POSPage() {
         })
     }
 
-    function handleAddCustomItem(name: string, price: number, flowerIds: string[]) {
+    function handleAddCustomItem(name: string, price: number, flowerItems: Array<{ productId: string; quantity: number }>) {
         setOrderItems((prev) => [
             ...prev,
-            { customName: name, customPrice: price, quantity: 1, isCustom: true, flowerIds }
+            { customName: name, customPrice: price, quantity: 1, isCustom: true, flowerItems }
         ])
     }
 

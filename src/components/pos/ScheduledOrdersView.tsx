@@ -88,6 +88,13 @@ export function ScheduledOrdersView() {
         return () => clearInterval(interval)
     }, [])
 
+    useEffect(() => {
+        if (editDeliveryType === 'pickup') {
+            setEditDeliveryAddress('')
+            setEditDeliveryFee('0')
+        }
+    }, [editDeliveryType])
+
     async function fetchScheduledOrders() {
         setLoading(true)
         const { data } = await supabase
@@ -232,6 +239,14 @@ export function ScheduledOrdersView() {
     // Save ALL edited fields
     async function saveOrderEdit() {
         if (!editingOrder) return
+        if (!editDeliveryDate || !editDeliveryTime) {
+            alert('Fecha y hora son obligatorias')
+            return
+        }
+        if (editDeliveryType === 'delivery' && !editDeliveryAddress) {
+            alert('La dirección es obligatoria para entrega')
+            return
+        }
         setSavingEdit(true)
         try {
             const newDeliveryDate = toLimaISO(editDeliveryDate, editDeliveryTime)
