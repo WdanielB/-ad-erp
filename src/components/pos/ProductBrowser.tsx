@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { Search, ShoppingCart } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { supabase } from '@/utils/supabase/client'
 import { Database } from '@/types/database.types'
 
@@ -15,45 +14,44 @@ interface ProductBrowserProps {
     onAddToCart: (product: Product) => void
 }
 
-export function ProductBrowser({ onAddToCart }: ProductBrowserProps) {
+function ProductBrowserComponent({ onAddToCart }: ProductBrowserProps) {
     const [products, setProducts] = useState<Product[]>([])
-    const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
     const [search, setSearch] = useState('')
     const [loading, setLoading] = useState(true)
     const [activeGroup, setActiveGroup] = useState<'composite' | 'flower' | 'standard'>('composite')
 
+    // Fetch products once on mount
     useEffect(() => {
+        // Fetch products only on mount
+        async function fetchProducts() {
+            const { data } = await supabase
+                .from('products')
+                .select('*')
+                .eq('is_active', true)
+                .order('name')
+
+            if (data) {
+                setProducts(data)
+            }
+            setLoading(false)
+        }
         fetchProducts()
     }, [])
 
-    useEffect(() => {
+    // Performance optimization: useMemo for derived filtering state.
+    // Eliminates redundant render cycles compared to the useEffect + useState pattern.
+    const filteredProducts = useMemo(() => {
         const groupFiltered = products.filter(p => p.type === activeGroup)
         if (!search) {
-            setFilteredProducts(groupFiltered)
+            return groupFiltered
         } else {
             const lowerSearch = search.toLowerCase()
-            setFilteredProducts(
-                groupFiltered.filter(p =>
-                    p.name.toLowerCase().includes(lowerSearch) ||
-                    p.sku?.toLowerCase().includes(lowerSearch)
-                )
+            return groupFiltered.filter(p =>
+                p.name.toLowerCase().includes(lowerSearch) ||
+                p.sku?.toLowerCase().includes(lowerSearch)
             )
         }
     }, [search, products, activeGroup])
-
-    async function fetchProducts() {
-        const { data } = await supabase
-            .from('products')
-            .select('*')
-            .eq('is_active', true)
-            .order('name')
-
-        if (data) {
-            setProducts(data)
-            setFilteredProducts(data)
-        }
-        setLoading(false)
-    }
 
     return (
         <div className="flex flex-col h-full space-y-4">
@@ -104,6 +102,8 @@ export function ProductBrowser({ onAddToCart }: ProductBrowserProps) {
                                             src={product.image_url}
                                             alt={product.name}
                                             className="w-full h-full object-cover"
+                                            // Performance: Lazy load images below the fold
+                                            loading="lazy"
                                         />
                                     ) : (
                                         <span className="text-xs text-muted-foreground">Sin imagen</span>
@@ -150,3 +150,7 @@ export function ProductBrowser({ onAddToCart }: ProductBrowserProps) {
         </div>
     )
 }
+
+// Performance: React.memo prevents the entire grid from re-rendering
+// when parent state (like the shopping cart) changes.
+export const ProductBrowser = memo(ProductBrowserComponent)
