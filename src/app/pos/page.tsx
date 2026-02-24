@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { ProductBrowser } from '@/components/pos/ProductBrowser'
 import { OrderSummary, OrderItem } from '@/components/pos/OrderSummary'
 import { ScheduledOrdersView } from '@/components/pos/ScheduledOrdersView'
@@ -14,7 +14,9 @@ export default function POSPage() {
 
     const [activeTab, setActiveTab] = useState('new-order')
 
-    function handleAddToCart(product: Product) {
+    // Memoize callbacks to prevent unnecessary re-renders of child components (ProductBrowser, OrderSummary)
+    // when POSPage state updates (e.g., when adding items or switching tabs).
+    const handleAddToCart = useCallback((product: Product) => {
         setOrderItems((prev) => {
             const existingItem = prev.find((item) => !item.isCustom && item.product?.id === product.id)
             if (existingItem) {
@@ -26,20 +28,20 @@ export default function POSPage() {
             }
             return [...prev, { product, quantity: 1, isCustom: false }]
         })
-    }
+    }, [])
 
-    function handleAddCustomItem(
+    const handleAddCustomItem = useCallback((
         name: string,
         price: number,
         flowerItems: Array<{ productId: string; colorItems: Array<{ colorId: string; quantity: number }> }>
-    ) {
+    ) => {
         setOrderItems((prev) => [
             ...prev,
             { customName: name, customPrice: price, quantity: 1, isCustom: true, flowerItems }
         ])
-    }
+    }, [])
 
-    function handleUpdateQuantity(itemId: string, delta: number) {
+    const handleUpdateQuantity = useCallback((itemId: string, delta: number) => {
         setOrderItems((prev) => {
             return prev.map((item, index) => {
                 const currentId = item.isCustom ? `custom-${index}` : item.product?.id || `item-${index}`
@@ -50,18 +52,18 @@ export default function POSPage() {
                 return item
             })
         })
-    }
+    }, [])
 
-    function handleRemoveItem(itemId: string) {
+    const handleRemoveItem = useCallback((itemId: string) => {
         setOrderItems((prev) => prev.filter((item, index) => {
             const currentId = item.isCustom ? `custom-${index}` : item.product?.id || `item-${index}`
             return currentId !== itemId
         }))
-    }
+    }, [])
 
-    function handleClearOrder() {
+    const handleClearOrder = useCallback(() => {
         setOrderItems([])
-    }
+    }, [])
 
     return (
         <div className="h-[calc(100vh-2rem)] p-4">
