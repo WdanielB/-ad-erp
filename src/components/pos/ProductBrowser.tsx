@@ -100,6 +100,7 @@ function ProductBrowserComponent({ onAddToCart }: ProductBrowserProps) {
                                             src={product.image_url}
                                             alt={product.name}
                                             className="w-full h-full object-cover"
+                                            loading="lazy"
                                         />
                                     ) : (
                                         <span className="text-xs text-muted-foreground">Sin imagen</span>
