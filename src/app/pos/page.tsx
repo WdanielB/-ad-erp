@@ -14,6 +14,10 @@ export default function POSPage() {
 
     const [activeTab, setActiveTab] = useState('new-order')
 
+    const handleOrderScheduled = useCallback(() => {
+        setActiveTab('scheduled')
+    }, [])
+
     // Memoize callbacks to prevent unnecessary re-renders of child components (ProductBrowser, OrderSummary)
     // when POSPage state updates (e.g., when adding items or switching tabs).
     const handleAddToCart = useCallback((product: Product) => {
@@ -85,7 +89,7 @@ export default function POSPage() {
                                 onRemoveItem={handleRemoveItem}
                                 onClearOrder={handleClearOrder}
                                 onAddCustomItem={handleAddCustomItem}
-                                onOrderScheduled={() => setActiveTab('scheduled')}
+                                onOrderScheduled={handleOrderScheduled}
                             />
                         </div>
                     </div>

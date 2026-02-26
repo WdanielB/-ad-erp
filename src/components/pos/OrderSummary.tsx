@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { Trash2, CreditCard, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +45,7 @@ interface OrderSummaryProps {
     onOrderScheduled?: () => void
 }
 
-export function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrder, onAddCustomItem, onOrderScheduled }: OrderSummaryProps) {
+export const OrderSummary = memo(function OrderSummary({ items, onUpdateQuantity, onRemoveItem, onClearOrder, onAddCustomItem, onOrderScheduled }: OrderSummaryProps) {
     const router = useRouter()
     const { profile } = useAuth()
     const [client, setClient] = useState<Client | null>(null)
@@ -675,4 +675,4 @@ ${clientPhone ? `\nContacto: ${clientPhone}` : ''}`
             </Dialog>
         </div>
     )
-}
+})

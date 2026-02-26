@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone, Timer, StickyNote, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -75,7 +75,7 @@ interface RecipeLine {
 
 type GroupMode = 'none' | 'day' | 'urgency'
 
-export function ScheduledOrdersView() {
+export const ScheduledOrdersView = memo(function ScheduledOrdersView() {
     const [orders, setOrders] = useState<OrderWithPayment[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null)
@@ -134,33 +134,44 @@ export function ScheduledOrdersView() {
 
     async function fetchScheduledOrders() {
         setLoading(true)
-        const { data } = await supabase
+        const { data: ordersData } = await supabase
             .from('orders')
             .select('*, clients(full_name), order_items(quantity, custom_item_name, is_custom, product_id, products(name, type))')
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
-        if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
+        if (ordersData) {
+            const orderIds = (ordersData as any[]).map(o => o.id)
 
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
+            // Optimization: Batch fetch transactions for all orders to avoid N+1 query problem.
+            // This reduces O(N) database calls to O(1).
+            const { data: allTransactions } = await (supabase
+                .from('transactions') as any)
+                .select('amount, related_order_id')
+                .in('related_order_id', orderIds)
+                .eq('type', 'income')
 
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
+            // Group transactions by order ID for O(1) lookup during mapping
+            const transactionsByOrder = (allTransactions || []).reduce((acc: Record<string, any[]>, t: any) => {
+                if (!t.related_order_id) return acc
+                if (!acc[t.related_order_id]) acc[t.related_order_id] = []
+                acc[t.related_order_id].push(t)
+                return acc
+            }, {})
 
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            const ordersWithPayments = (ordersData as any[]).map((order) => {
+                const transactions = transactionsByOrder[order.id] || []
+                const advancePayment = transactions.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
+                const balance = order.total_amount - advancePayment
+
+                const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                    if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                    if (oi.is_custom) return '🌸 Ramo Personalizado'
+                    return oi.products?.name || 'Producto'
                 })
-            )
+
+                return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            })
             setOrders(ordersWithPayments)
         }
         setLoading(false)
@@ -1625,4 +1636,4 @@ export function ScheduledOrdersView() {
             </Dialog>
         </div>
     )
-}
+})
