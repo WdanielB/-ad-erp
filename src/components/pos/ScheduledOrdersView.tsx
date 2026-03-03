@@ -134,35 +134,51 @@ export function ScheduledOrdersView() {
 
     async function fetchScheduledOrders() {
         setLoading(true)
-        const { data } = await supabase
+        const { data: ordersData } = await supabase
             .from('orders')
             .select('*, clients(full_name), order_items(quantity, custom_item_name, is_custom, product_id, products(name, type))')
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
-        if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
-
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
-
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
-
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
-                })
-            )
-            setOrders(ordersWithPayments)
+        if (!ordersData || ordersData.length === 0) {
+            setOrders([])
+            setLoading(false)
+            return
         }
+
+        const orderIds = (ordersData as any[]).map(o => o.id)
+
+        // Optimization: Batch fetch transactions for all orders to avoid N+1 query problem.
+        // This reduces network overhead and database load by making a single query instead of one per order.
+        const { data: transactionsData } = await (supabase
+            .from('transactions') as any)
+            .select('amount, related_order_id')
+            .in('related_order_id', orderIds)
+            .eq('type', 'income')
+
+        // Group and sum transaction amounts by order ID in memory
+        const transactionsByOrder = (transactionsData || []).reduce((acc: Record<string, number>, t: any) => {
+            const orderId = t.related_order_id
+            if (orderId) {
+                acc[orderId] = (acc[orderId] || 0) + (t.amount || 0)
+            }
+            return acc
+        }, {})
+
+        const ordersWithPayments = (ordersData as any[]).map((order) => {
+            const advancePayment = transactionsByOrder[order.id] || 0
+            const balance = order.total_amount - advancePayment
+
+            const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                if (oi.is_custom) return '🌸 Ramo Personalizado'
+                return oi.products?.name || 'Producto'
+            })
+
+            return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+        })
+
+        setOrders(ordersWithPayments)
         setLoading(false)
     }
 
