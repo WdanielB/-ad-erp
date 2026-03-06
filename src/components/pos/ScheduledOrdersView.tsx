@@ -134,34 +134,46 @@ export function ScheduledOrdersView() {
 
     async function fetchScheduledOrders() {
         setLoading(true)
-        const { data } = await supabase
+        const { data: ordersData } = await supabase
             .from('orders')
             .select('*, clients(full_name), order_items(quantity, custom_item_name, is_custom, product_id, products(name, type))')
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
-        if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
+        if (ordersData && ordersData.length > 0) {
+            const castedOrders = ordersData as any[]
+            const orderIds = castedOrders.map(o => o.id)
 
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
+            // Optimization: Fetch all transactions for all orders in a single query to avoid N+1 bottleneck.
+            // This reduces the number of database calls from N+1 to 2.
+            const { data: transactionsData } = await (supabase
+                .from('transactions') as any)
+                .select('related_order_id, amount')
+                .in('related_order_id', orderIds)
+                .eq('type', 'income')
 
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
+            // Group transactions by order ID to calculate advance payments in memory
+            const transactionsByOrder = (transactionsData || []).reduce((acc: Record<string, number>, t: any) => {
+                if (!t.related_order_id) return acc
+                acc[t.related_order_id] = (acc[t.related_order_id] || 0) + (t.amount || 0)
+                return acc
+            }, {})
 
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            const ordersWithPayments = castedOrders.map((order) => {
+                const advancePayment = transactionsByOrder[order.id] || 0
+                const balance = order.total_amount - advancePayment
+
+                const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                    if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                    if (oi.is_custom) return '🌸 Ramo Personalizado'
+                    return oi.products?.name || 'Producto'
                 })
-            )
+
+                return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            })
             setOrders(ordersWithPayments)
+        } else if (ordersData) {
+            setOrders([])
         }
         setLoading(false)
     }
