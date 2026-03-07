@@ -87,7 +87,9 @@ export function getLimaDateParts(date?: string | Date): { date: string; time: st
  * Build an ISO string from date + time inputs, anchored to Lima timezone.
  */
 export function toLimaISO(dateStr: string, timeStr: string): string {
-  return `${dateStr}T${timeStr}:00-05:00`
+  const [hours = '00', minutes = '00', seconds = '00'] = timeStr.trim().split(':')
+  const normalizedTime = `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}:${seconds.padStart(2, '0')}`
+  return `${dateStr.trim()}T${normalizedTime}-05:00`
 }
 
 /**
