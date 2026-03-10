@@ -140,28 +140,40 @@ export function ScheduledOrdersView() {
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
-        if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
+        if (data && (data as any[]).length > 0) {
+            const ordersData = data as any[]
+            const orderIds = ordersData.map(o => o.id)
 
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
+            // Optimization: Eliminate N+1 query by batching transaction fetches for all pending orders.
+            // This replaces fetching transactions inside a .map() loop, reducing network overhead significantly.
+            const { data: allTransactions } = await (supabase
+                .from('transactions') as any)
+                .select('amount, related_order_id')
+                .in('related_order_id', orderIds)
+                .eq('type', 'income')
 
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
+            // Aggregating payments in-memory using a Map for O(1) lookup during order enrichment.
+            const paymentsMap = new Map<string, number>()
+            ;(allTransactions || []).forEach((t: any) => {
+                const current = paymentsMap.get(t.related_order_id) || 0
+                paymentsMap.set(t.related_order_id, current + t.amount)
+            })
 
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            const ordersWithPayments = ordersData.map((order) => {
+                const advancePayment = paymentsMap.get(order.id) || 0
+                const balance = order.total_amount - advancePayment
+
+                const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                    if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                    if (oi.is_custom) return '🌸 Ramo Personalizado'
+                    return oi.products?.name || 'Producto'
                 })
-            )
+
+                return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            })
             setOrders(ordersWithPayments)
+        } else if (data) {
+            setOrders([])
         }
         setLoading(false)
     }
