@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone, Timer, StickyNote, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -75,7 +75,7 @@ interface RecipeLine {
 
 type GroupMode = 'none' | 'day' | 'urgency'
 
-export function ScheduledOrdersView() {
+function ScheduledOrdersViewComponent() {
     const [orders, setOrders] = useState<OrderWithPayment[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null)
@@ -141,26 +141,35 @@ export function ScheduledOrdersView() {
             .order('delivery_date', { ascending: true })
 
         if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
+            const ordersData = data as any[]
+            const orderIds = ordersData.map(o => o.id)
 
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
+            // ⚡ Bolt Optimization: Eliminate N+1 query by batching transaction fetches.
+            // Using Map for O(1) lookup during data enrichment.
+            const { data: allTransactions } = await (supabase
+                .from('transactions') as any)
+                .select('amount, related_order_id')
+                .in('related_order_id', orderIds)
+                .eq('type', 'income')
 
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
+            const advanceMap = new Map<string, number>()
+            ;(allTransactions || []).forEach((t: any) => {
+                const current = advanceMap.get(t.related_order_id) || 0
+                advanceMap.set(t.related_order_id, current + t.amount)
+            })
 
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            const ordersWithPayments = ordersData.map((order) => {
+                const advancePayment = advanceMap.get(order.id) || 0
+                const balance = order.total_amount - advancePayment
+
+                const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                    if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                    if (oi.is_custom) return '🌸 Ramo Personalizado'
+                    return oi.products?.name || 'Producto'
                 })
-            )
+
+                return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            })
             setOrders(ordersWithPayments)
         }
         setLoading(false)
@@ -1626,3 +1635,5 @@ export function ScheduledOrdersView() {
         </div>
     )
 }
+
+export const ScheduledOrdersView = memo(ScheduledOrdersViewComponent)
