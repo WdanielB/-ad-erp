@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { Check, X, Ticket, Loader2, MapPin, Search, Edit, Phone, Timer, StickyNote, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -75,7 +75,7 @@ interface RecipeLine {
 
 type GroupMode = 'none' | 'day' | 'urgency'
 
-export function ScheduledOrdersView() {
+function ScheduledOrdersViewComponent() {
     const [orders, setOrders] = useState<OrderWithPayment[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null)
@@ -132,6 +132,11 @@ export function ScheduledOrdersView() {
         }
     }, [editDeliveryType])
 
+    /**
+     * Optimization: Fetches scheduled orders and their associated payments.
+     * Replaces an N+1 query pattern with a single batched fetch for transactions,
+     * significantly reducing database load and improving responsiveness.
+     */
     async function fetchScheduledOrders() {
         setLoading(true)
         const { data } = await supabase
@@ -140,28 +145,39 @@ export function ScheduledOrdersView() {
             .eq('status', 'pending')
             .order('delivery_date', { ascending: true })
 
-        if (data) {
-            const ordersWithPayments = await Promise.all(
-                (data as any[]).map(async (order) => {
-                    const { data: transactions } = await (supabase
-                        .from('transactions') as any)
-                        .select('amount')
-                        .eq('related_order_id', order.id)
-                        .eq('type', 'income')
+        const ordersData = (data as any[]) || []
+        if (ordersData.length > 0) {
+            const orderIds = ordersData.map(o => o.id)
 
-                    const advancePayment = transactions?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
-                    const balance = order.total_amount - advancePayment
+            // Batch fetch transactions for all orders at once (Eliminates N+1)
+            const { data: allTransactions } = await (supabase
+                .from('transactions') as any)
+                .select('amount, related_order_id')
+                .in('related_order_id', orderIds)
+                .eq('type', 'income')
 
-                    const itemNames: string[] = (order.order_items || []).map((oi: any) => {
-                        if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
-                        if (oi.is_custom) return '🌸 Ramo Personalizado'
-                        return oi.products?.name || 'Producto'
-                    })
+            // Aggregate payments in memory for O(1) lookup
+            const paymentsByOrder = new Map<string, number>()
+            ;(allTransactions || []).forEach((t: any) => {
+                const current = paymentsByOrder.get(t.related_order_id) || 0
+                paymentsByOrder.set(t.related_order_id, current + (t.amount || 0))
+            })
 
-                    return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            const ordersWithPayments = ordersData.map((order) => {
+                const advancePayment = paymentsByOrder.get(order.id) || 0
+                const balance = (order.total_amount || 0) - advancePayment
+
+                const itemNames: string[] = (order.order_items || []).map((oi: any) => {
+                    if (oi.is_custom && oi.custom_item_name) return `🌸 ${oi.custom_item_name}`
+                    if (oi.is_custom) return '🌸 Ramo Personalizado'
+                    return oi.products?.name || 'Producto'
                 })
-            )
+
+                return { ...order, advance_payment: advancePayment, balance, item_names: itemNames }
+            })
             setOrders(ordersWithPayments)
+        } else if (data) {
+            setOrders([])
         }
         setLoading(false)
     }
@@ -508,11 +524,11 @@ export function ScheduledOrdersView() {
 
     useEffect(() => { fetchScheduledOrders() }, [])
 
-    // Filter by phone
-    const filteredOrders = orders.filter(order => {
-        if (!searchPhone) return true
-        return (order.client_phone || '').includes(searchPhone)
-    })
+    // Optimization: Use useMemo for filtering to avoid an extra render cycle when search term changes.
+    const filteredOrders = useMemo(() => {
+        if (!searchPhone) return orders
+        return orders.filter(order => (order.client_phone || '').includes(searchPhone))
+    }, [orders, searchPhone])
 
     // Group orders
     const groupedOrders = useMemo(() => {
@@ -1626,3 +1642,7 @@ export function ScheduledOrdersView() {
         </div>
     )
 }
+
+// Optimization: Wrap with React.memo to skip re-rendering when parent state
+// (like the shopping cart in POSPage) changes but this view is not active.
+export const ScheduledOrdersView = memo(ScheduledOrdersViewComponent)
